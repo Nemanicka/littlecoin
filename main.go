@@ -17,44 +17,47 @@ import (
   "time"
   "bufio"
   "io/ioutil"
-  // "math/big"
+  "math/big"
   "fmt"
-  "bytes"
+  // "bytes"
   "github.com/davecgh/go-spew/spew"
   "github.com/gorilla/mux"
   "github.com/joho/godotenv"
+  // "github.com/dustin/go-hashset"
 )
 
 type TXOUT struct {
-  Address []byte;
+  Address string;
   Amount int;
   //...
 }
 //
-func (txout TXOUT) Hash() [32]byte {
+func (txout TXOUT) Hash() string {
   txoutBytes := append([]byte(txout.Address), byte(txout.Amount))
-  return sha256.Sum256(txoutBytes);
+  hash := sha256.Sum256(txoutBytes)
+  return string(hash[:]);
 }
 
 type TXIN struct {
-  Sign     []byte
+  Sign     string
   IndexRef int
-  IdRef    int
+  IdRef    string
   //...
 }
 
-func (txin TXIN) Hash() [32]byte {
-  txinBytes := append([]byte(txin.Sign), byte(txin.IndexRef), byte(txin.IdRef))
-  return sha256.Sum256(txinBytes);
+func (txin TXIN) Hash() string {
+  txinBytes := txin.Sign + string(txin.IndexRef) + txin.IdRef
+  hash := sha256.Sum256([]byte(txinBytes))
+  return string(hash[:]);
 }
 
 type Transaction struct {
-  // Id    []byte
+  Id    string
   Txin  []TXIN
   Txout []TXOUT
 }
 
-func (tx Transaction) Hash() [32]byte {
+func (tx Transaction) Hash() string {
   var hash [32]byte
   for _, txin := range tx.Txin {
       txinHash := txin.Hash()
@@ -66,12 +69,12 @@ func (tx Transaction) Hash() [32]byte {
       hash = sha256.Sum256(append(hash[:], txoutHash[:]...))
   }
 
-  return hash;
+  return string(hash[:]);
 }
 
 type Block struct {
   Timestamp string
-  Hash      []byte
+  Hash      string
   PrevHash  string
   Txs []Transaction
 }
@@ -82,30 +85,24 @@ var lastBlock Block
 
 var pubKey []byte
 
-func (block Block) HashBlock() []byte {
+func (block Block) HashBlock() string {
   var hash [32]byte
   for _, tx := range block.Txs {
     txHash := tx.Hash()
     hash = sha256.Sum256(append(hash[:], txHash[:]...))
   }
 
-  return hash[:]
-  //
-  // record := append([]byte(block.Timestamp), []byte(block.PrevHash), txsHash)
-  // h := sha256.New()
-  // h.Write([]byte(record))
-  // hashed := h.Sum(nil)
-  // return hex.EncodeToString(hashed)
+  return string(hash[:])
 }
 
 func (block Block) CountMyMoney() int {
   money := 0;
-  fmt.Println("count...");
+  // fmt.Println("count...");
   for _, tx := range block.Txs {
-    fmt.Println("test1");
+    // fmt.Println("test1");
     for _, txout := range tx.Txout {
-      fmt.Println("test2", base64.StdEncoding.EncodeToString(txout.Address),  " pub = ", base64.StdEncoding.EncodeToString(pubKey));
-      if (bytes.Equal(txout.Address, pubKey)) {
+      // fmt.Println("test2", base64.StdEncoding.EncodeToString(txout.Address),  " pub = ", base64.StdEncoding.EncodeToString(pubKey));
+      if txout.Address == base64.StdEncoding.EncodeToString(pubKey) {
         money += txout.Amount;
       }
     }
@@ -269,11 +266,10 @@ func getBalance () int {
   defer blockfile.Close()
   reader := bufio.NewReader(blockfile)
 
-  balance := 0
   for {
     line, _, err := reader.ReadLine()
     if len(line) == 0 {
-      return balance
+      return 0
     }
     if err != nil {
       log.Fatal(err)
@@ -287,16 +283,138 @@ func getBalance () int {
       return -1
     }
 
-    balance += block.CountMyMoney()
+    // balance += block.CountMyMoney()
 
-    fmt.Println("Line!");
+    money := 0
+    spent := make(map[string]byte)
+    for _, tx := range block.Txs {
+      if  _, ok := spent[tx.Id]; ok {
+        continue
+      }
+
+      for _, txout := range tx.Txout {
+        if txout.Address == base64.StdEncoding.EncodeToString(pubKey) {
+          money += txout.Amount;
+        }
+      }
+
+      r := big.Int{}
+      s := big.Int{}
+      for _, txin := range tx.Txin {
+        if len(txin.Sign) == 0 {
+          continue
+        }
+
+        curve := elliptic.P256()
+
+		    sigLen := len(txin.Sign)
+		    r.SetBytes([]byte(txin.Sign)[:(sigLen / 2)])
+		    s.SetBytes([]byte(txin.Sign)[(sigLen / 2):])
+
+        x := big.Int{}
+		    y := big.Int{}
+		    keyLen := len(pubKey)
+		    x.SetBytes(pubKey[:(keyLen / 2)])
+		    y.SetBytes(pubKey[(keyLen / 2):])
+
+        rawPubKey := ecdsa.PublicKey{Curve: curve, X: &x, Y: &y}
+
+        isMySpending := ecdsa.Verify(&rawPubKey, []byte(txin.IdRef), &r, &s)
+
+        if isMySpending {
+          spent[txin.IdRef] = 1
+        }
+      }
+
+    }
+    return money
   }
 
   return -1
 }
 
+func getTransactions () {
+  var blockfile, _ = os.OpenFile("blockchain.dat", os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
+  defer blockfile.Close()
+  reader := bufio.NewReader(blockfile)
+
+  for {
+    line, _, err := reader.ReadLine()
+    if len(line) == 0 {
+      return
+    }
+    if err != nil {
+      log.Fatal(err)
+      return
+    }
+
+    var block Block
+    err = json.Unmarshal(line, &block)
+    if err != nil {
+      log.Fatal(err)
+      return
+    }
+
+    // balance += block.CountMyMoney()
+    //
+    spent := make(map[string]byte)
+    for _, tx := range block.Txs {
+      // if  _, ok := spent[tx.Id]; ok {
+      //   continue
+      // }
+
+      for _, txout := range tx.Txout {
+        if txout.Address == base64.StdEncoding.EncodeToString(pubKey) {
+          fmt.Println("input    ", txout.Amount, "    confirmed");
+        }
+      }
+
+      r := big.Int{}
+      s := big.Int{}
+      for _, txin := range tx.Txin {
+        if len(txin.Sign) == 0 {
+          continue
+        }
+
+        curve := elliptic.P256()
+
+		    sigLen := len(txin.Sign)
+		    r.SetBytes([]byte(txin.Sign)[:(sigLen / 2)])
+		    s.SetBytes([]byte(txin.Sign)[(sigLen / 2):])
+
+        x := big.Int{}
+		    y := big.Int{}
+		    keyLen := len(pubKey)
+		    x.SetBytes(pubKey[:(keyLen / 2)])
+		    y.SetBytes(pubKey[(keyLen / 2):])
+
+        rawPubKey := ecdsa.PublicKey{Curve: curve, X: &x, Y: &y}
+
+        isMySpending := ecdsa.Verify(&rawPubKey, []byte(txin.IdRef), &r, &s)
+
+        if isMySpending {
+          fmt.Println("output   ", txout.Amount, "    confirmed");
+        }
+      }
+
+    }
+    // return money
+  }
+}
+
+func showHelp() {
+  fmt.Println("help             show this message");
+  fmt.Println("balance          show your balance");
+  fmt.Println("peers            show list of all available peers");
+  fmt.Println("transactions     show list of your transactions");
+}
+
 func processInput (cmd string) {
   switch cmd {
+  case "help":
+    showHelp();
+  case "transactions":
+    getTransactions();
   case "balance":
       balance := getBalance()
       fmt.Println("Your balance: ", balance, " ultramegacoins");
@@ -333,10 +451,12 @@ func main () {
       var blockfile, _ = os.OpenFile("blockchain.dat", os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
       defer blockfile.Close()
       /// Hardcode genesis block
-      txin  := TXIN{}
-      txout := TXOUT{[]byte("lhHR40PLr09f+CP0p0hdFxTvVjYdDZLKHkStgIT8P4R6WgkkkXQvbS4gPzqX9/v1BRSd+N53MAXhFN72mvTa8g=="), 50}
-      txs   := []Transaction{{[]TXIN{txin}, []TXOUT{txout}}}
-      genesisBlock := Block{"10.03.2018 easy peasy lemon squeezy", []byte{}, "GENESIS", txs}
+      txin  := TXIN{"", 0, ""}
+      txout := TXOUT{"lhHR40PLr09f+CP0p0hdFxTvVjYdDZLKHkStgIT8P4R6WgkkkXQvbS4gPzqX9/v1BRSd+N53MAXhFN72mvTa8g==", 50}
+      tx    := Transaction{"", []TXIN{txin}, []TXOUT{txout}}
+      tx.Id  = tx.Hash()
+      txs   := []Transaction{tx}
+      genesisBlock := Block{"10.03.2018 easy peasy lemon squeezy", "", "GENESIS", txs}
       genesisBlock.Hash = genesisBlock.HashBlock()
       spew.Dump(genesisBlock)
       Blockchain = append(Blockchain, genesisBlock)
