@@ -7,6 +7,7 @@ import (
   "crypto/rand"
   "crypto/elliptic"
   "crypto/ecdsa"
+  "crypto/x509"
   "encoding/base64"
   // "encoding/hex"
   "encoding/json"
@@ -80,6 +81,7 @@ type Block struct {
 }
 
 var Blockchain []Block
+var PendingTxs []Transaction
 
 var lastBlock Block
 
@@ -250,8 +252,12 @@ func loadFiles(blockfile string, wallet string) {
   }
   // line, _, _ = reader.Read()
   // log.Print(string(file))
-  var private ecdsa.PrivateKey
-  _ = json.Unmarshal(file, &private)
+  // var private ecdsa.PrivateKey
+  private, err := x509.ParseECPrivateKey(file)
+  if err != nil {
+    log.Fatal(err)
+    return
+  }
   pubKey = append(private.PublicKey.X.Bytes(), private.PublicKey.Y.Bytes()...)
   h := base64.StdEncoding.EncodeToString(pubKey)
   log.Print("Load: ", h)
@@ -261,77 +267,6 @@ func loadFiles(blockfile string, wallet string) {
   // }
 }
 
-func getBalance () int {
-  var blockfile, _ = os.OpenFile("blockchain.dat", os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
-  defer blockfile.Close()
-  reader := bufio.NewReader(blockfile)
-
-  for {
-    line, _, err := reader.ReadLine()
-    if len(line) == 0 {
-      return 0
-    }
-    if err != nil {
-      log.Fatal(err)
-      return -1
-    }
-
-    var block Block
-    err = json.Unmarshal(line, &block)
-    if err != nil {
-      log.Fatal(err)
-      return -1
-    }
-
-    // balance += block.CountMyMoney()
-
-    money := 0
-    spent := make(map[string]byte)
-    for _, tx := range block.Txs {
-      if  _, ok := spent[tx.Id]; ok {
-        continue
-      }
-
-      for _, txout := range tx.Txout {
-        if txout.Address == base64.StdEncoding.EncodeToString(pubKey) {
-          money += txout.Amount;
-        }
-      }
-
-      r := big.Int{}
-      s := big.Int{}
-      for _, txin := range tx.Txin {
-        if len(txin.Sign) == 0 {
-          continue
-        }
-
-        curve := elliptic.P256()
-
-		    sigLen := len(txin.Sign)
-		    r.SetBytes([]byte(txin.Sign)[:(sigLen / 2)])
-		    s.SetBytes([]byte(txin.Sign)[(sigLen / 2):])
-
-        x := big.Int{}
-		    y := big.Int{}
-		    keyLen := len(pubKey)
-		    x.SetBytes(pubKey[:(keyLen / 2)])
-		    y.SetBytes(pubKey[(keyLen / 2):])
-
-        rawPubKey := ecdsa.PublicKey{Curve: curve, X: &x, Y: &y}
-
-        isMySpending := ecdsa.Verify(&rawPubKey, []byte(txin.IdRef), &r, &s)
-
-        if isMySpending {
-          spent[txin.IdRef] = 1
-        }
-      }
-
-    }
-    return money
-  }
-
-  return -1
-}
 
 func getTransactions () {
   var blockfile, _ = os.OpenFile("blockchain.dat", os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
@@ -357,7 +292,7 @@ func getTransactions () {
 
     // balance += block.CountMyMoney()
     //
-    spent := make(map[string]byte)
+    // spent := make(map[string]byte)
     for _, tx := range block.Txs {
       // if  _, ok := spent[tx.Id]; ok {
       //   continue
@@ -393,7 +328,11 @@ func getTransactions () {
         isMySpending := ecdsa.Verify(&rawPubKey, []byte(txin.IdRef), &r, &s)
 
         if isMySpending {
-          fmt.Println("output   ", txout.Amount, "    confirmed");
+          for _, txout := range tx.Txout {
+            if txout.Address != base64.StdEncoding.EncodeToString(pubKey) {
+              fmt.Println("output   ", txout.Amount, "    confirmed");
+            }
+          }
         }
       }
 
@@ -402,11 +341,182 @@ func getTransactions () {
   }
 }
 
+func getUnspentTxs(limit int) ([]Transaction, []int) {
+  var blockfile, _ = os.OpenFile("blockchain.dat", os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
+  defer blockfile.Close()
+  reader := bufio.NewReader(blockfile)
+
+  var unspentTxs []Transaction
+  var txIndexes  []int
+  lineIndex := 0
+  balance   := 0
+  for {
+    line, _, err := reader.ReadLine()
+    if len(line) == 0 {
+      return unspentTxs, txIndexes
+    }
+    if err != nil {
+      log.Fatal(err)
+      return unspentTxs, txIndexes
+    }
+
+    var block Block
+    err = json.Unmarshal(line, &block)
+    if err != nil {
+      log.Fatal(err)
+      return unspentTxs, txIndexes
+    }
+
+    // balance += block.CountMyMoney()
+
+    // money := -1
+    spent := make(map[string]byte)
+    for _, tx := range block.Txs {
+      lineIndex+=1
+      if  _, ok := spent[tx.Id]; ok {
+        continue
+      }
+      for _, txout := range tx.Txout {
+        /// assume there is only one out tx per wallet
+        if txout.Address == base64.StdEncoding.EncodeToString(pubKey) {
+          unspentTxs = append(unspentTxs, tx)
+          txIndexes  = append(txIndexes, lineIndex)
+          balance   += txout.Amount
+          // break
+        }
+      }
+
+      if limit > 0 && balance >= limit {
+        return unspentTxs, txIndexes
+      }
+
+      r := big.Int{}
+      s := big.Int{}
+      for _, txin := range tx.Txin {
+        if len(txin.Sign) == 0 {
+          continue
+        }
+
+        curve := elliptic.P256()
+
+		    sigLen := len(txin.Sign)
+		    r.SetBytes([]byte(txin.Sign)[:(sigLen / 2)])
+		    s.SetBytes([]byte(txin.Sign)[(sigLen / 2):])
+
+        x := big.Int{}
+		    y := big.Int{}
+		    keyLen := len(pubKey)
+		    x.SetBytes(pubKey[:(keyLen / 2)])
+		    y.SetBytes(pubKey[(keyLen / 2):])
+
+        rawPubKey := ecdsa.PublicKey{Curve: curve, X: &x, Y: &y}
+
+        isMySpending := ecdsa.Verify(&rawPubKey, []byte(txin.IdRef), &r, &s)
+
+        if isMySpending {
+          spent[txin.IdRef] = 1
+        }
+      }
+
+    }
+    // return money
+  }
+
+  return unspentTxs, txIndexes
+}
+
+func getBalance () int {
+  unspentTxs, _ := getUnspentTxs(-1)
+  balance := 0
+  for _, tx := range unspentTxs {
+    for _, txout := range tx.Txout {
+      if txout.Address == base64.StdEncoding.EncodeToString(pubKey) {
+        balance += txout.Amount
+      }
+    }
+  }
+
+  return balance
+}
+
+func getPrivateKey() ecdsa.PrivateKey {
+  file, _ := ioutil.ReadFile("wallet.dat")
+
+  if string(file) == "" {
+    return ecdsa.PrivateKey{}
+  }
+  // line, _, _ = reader.Read()
+  // log.Print(string(file))
+  private, err := x509.ParseECPrivateKey(file)
+  if err != nil {
+    log.Fatal(err)
+    return ecdsa.PrivateKey{}
+  }
+  copy := *private
+  return copy
+}
+
+func CreateTransaction(unspentTxs []Transaction, txIndexes []int, amount int, address string) Transaction {
+  var txsin []TXIN
+  privateKey := getPrivateKey()
+
+  size := privateKey.Curve
+  fmt.Println(size)
+  spew.Dump(*(&privateKey))
+
+  totalInput := 0
+  for i, tx  := range unspentTxs {
+    r,s, _   := ecdsa.Sign(rand.Reader, &privateKey, []byte(tx.Id))
+    sign     := append(r.Bytes(),s.Bytes()...)
+    txin     := TXIN{string(sign), txIndexes[i], tx.Id}
+    txsin     = append(txsin, txin)
+    for _, txout := range tx.Txout {
+      totalInput += txout.Amount
+    }
+  }
+
+  var txsout []TXOUT
+  txout  := TXOUT{address, amount}
+  change := TXOUT{string(pubKey), totalInput - amount}
+  txsout = append(txsout, txout)
+  if change.Amount > 0 {
+    txsout = append(txsout, change)
+  }
+
+  newtx   := Transaction{"", txsin, txsout}
+  newtx.Id = newtx.Hash()
+  return newtx
+}
+
+func send() {
+  var amount  int
+  var address string
+
+
+  fmt.Print("Amount: ")
+  _, err := fmt.Scanf("%d", &amount)
+
+  if err != nil {
+    fmt.Println(err)
+  }
+
+  fmt.Print("Address: ")
+  _, _ = fmt.Scanf("%s", &address)
+
+  unspentTxs, txIndexes := getUnspentTxs(amount)
+  sendTx := CreateTransaction(unspentTxs, txIndexes, amount, address)
+  spew.Dump(sendTx)
+  // txsToSpend = getSufficientInput(amount)
+
+}
+
+
 func showHelp() {
   fmt.Println("help             show this message");
   fmt.Println("balance          show your balance");
   fmt.Println("peers            show list of all available peers");
   fmt.Println("transactions     show list of your transactions");
+  fmt.Println("send             [Amount][Address] send money");
 }
 
 func processInput (cmd string) {
@@ -415,6 +525,8 @@ func processInput (cmd string) {
     showHelp();
   case "transactions":
     getTransactions();
+  case "send":
+    send();
   case "balance":
       balance := getBalance()
       fmt.Println("Your balance: ", balance, " ultramegacoins");
@@ -452,7 +564,7 @@ func main () {
       defer blockfile.Close()
       /// Hardcode genesis block
       txin  := TXIN{"", 0, ""}
-      txout := TXOUT{"lhHR40PLr09f+CP0p0hdFxTvVjYdDZLKHkStgIT8P4R6WgkkkXQvbS4gPzqX9/v1BRSd+N53MAXhFN72mvTa8g==", 50}
+      txout := TXOUT{"zZvNvCqtvZ3FhUjO+QjoiBQoj+Pgj5GNJDO7z2HifSxGvDfjKHuutUQWLCHifFyXfYNss/LAxYschi3oLLnKww==", 50}
       tx    := Transaction{"", []TXIN{txin}, []TXOUT{txout}}
       tx.Id  = tx.Hash()
       txs   := []Transaction{tx}
@@ -478,6 +590,8 @@ func main () {
     		log.Panic(err)
     	}
 
+      spew.Dump(private)
+
       var wallet, _    = os.OpenFile("wallet.dat", os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
       defer wallet.Close()
 
@@ -485,10 +599,10 @@ func main () {
 
     	// key, _ := rsa.GenerateKey(randReader, bitSize)
       // pub     = key.PublicKey
-      str, _ := json.Marshal(private)
+      str, _ := x509.MarshalECPrivateKey(private)
       h := base64.StdEncoding.EncodeToString(pubKey)
       log.Print("GENERATE ", h)
-      wallet.WriteString(string(str) + "\n")
+      wallet.Write(str)
     }
 
   } ()
