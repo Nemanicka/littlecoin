@@ -267,8 +267,70 @@ func loadFiles(blockfile string, wallet string) {
   // }
 }
 
+type FriendlyTxInfo struct {
+  Confirmed bool
+  Type      string
+  Amount    int
+}
 
-func getTransactions () {
+func IsMySpending (tx Transaction) bool {
+  if len(tx.Txin) == 0 {
+    return false
+  }
+
+  txin := tx.Txin[0]
+
+  curve := elliptic.P256()
+  sigLen := len(txin.Sign)
+
+  r := big.Int{}
+  s := big.Int{}
+  r.SetBytes([]byte(txin.Sign)[:(sigLen / 2)])
+  s.SetBytes([]byte(txin.Sign)[(sigLen / 2):])
+
+  x := big.Int{}
+  y := big.Int{}
+  keyLen := len(pubKey)
+  x.SetBytes(pubKey[:(keyLen / 2)])
+  y.SetBytes(pubKey[(keyLen / 2):])
+
+  rawPubKey := ecdsa.PublicKey{Curve: curve, X: &x, Y: &y}
+
+  isMySpending := ecdsa.Verify(&rawPubKey, []byte(txin.IdRef), &r, &s)
+
+  if isMySpending {
+    return true
+  }
+  return false
+}
+
+func showTransactionsWithStatus (txs []Transaction, status string) {
+  for _, tx := range txs {
+    isMy := IsMySpending(tx)
+    txSpendings := 0
+    for _, txout := range tx.Txout {
+      if txout.Address == base64.StdEncoding.EncodeToString(pubKey) {
+        if isMy {
+          fmt.Println("change                 ", txout.Amount, "    ", status);
+        } else {
+          if tx.Txin[0].Sign == "" {
+            fmt.Println("income (coinbase)      ", txout.Amount, "    ", status);
+          } else {
+            fmt.Println("income                 ", txout.Amount, "    ", status);
+          }
+        }
+      }
+
+      txSpendings += txout.Amount
+    }
+
+    if isMy {
+      fmt.Println("outcome                ", txSpendings, "    ", status);
+    }
+  }
+}
+
+func showTransactions () {
   var blockfile, _ = os.OpenFile("blockchain.dat", os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
   defer blockfile.Close()
   reader := bufio.NewReader(blockfile)
@@ -276,7 +338,8 @@ func getTransactions () {
   for {
     line, _, err := reader.ReadLine()
     if len(line) == 0 {
-      return
+      break
+
     }
     if err != nil {
       log.Fatal(err)
@@ -293,52 +356,10 @@ func getTransactions () {
     // balance += block.CountMyMoney()
     //
     // spent := make(map[string]byte)
-    for _, tx := range block.Txs {
-      // if  _, ok := spent[tx.Id]; ok {
-      //   continue
-      // }
-
-      for _, txout := range tx.Txout {
-        if txout.Address == base64.StdEncoding.EncodeToString(pubKey) {
-          fmt.Println("input    ", txout.Amount, "    confirmed");
-        }
-      }
-
-      r := big.Int{}
-      s := big.Int{}
-      for _, txin := range tx.Txin {
-        if len(txin.Sign) == 0 {
-          continue
-        }
-
-        curve := elliptic.P256()
-
-		    sigLen := len(txin.Sign)
-		    r.SetBytes([]byte(txin.Sign)[:(sigLen / 2)])
-		    s.SetBytes([]byte(txin.Sign)[(sigLen / 2):])
-
-        x := big.Int{}
-		    y := big.Int{}
-		    keyLen := len(pubKey)
-		    x.SetBytes(pubKey[:(keyLen / 2)])
-		    y.SetBytes(pubKey[(keyLen / 2):])
-
-        rawPubKey := ecdsa.PublicKey{Curve: curve, X: &x, Y: &y}
-
-        isMySpending := ecdsa.Verify(&rawPubKey, []byte(txin.IdRef), &r, &s)
-
-        if isMySpending {
-          for _, txout := range tx.Txout {
-            if txout.Address != base64.StdEncoding.EncodeToString(pubKey) {
-              fmt.Println("output   ", txout.Amount, "    confirmed");
-            }
-          }
-        }
-      }
-
-    }
-    // return money
+    showTransactionsWithStatus(block.Txs, "confirmed")
   }
+  // fmt.Println("trying...")
+  showTransactionsWithStatus(PendingTxs, "pending")
 }
 
 func getUnspentTxs(limit int) ([]Transaction, []int) {
@@ -348,12 +369,12 @@ func getUnspentTxs(limit int) ([]Transaction, []int) {
 
   var unspentTxs []Transaction
   var txIndexes  []int
-  lineIndex := 0
+  lineIndex := -1
   balance   := 0
   for {
     line, _, err := reader.ReadLine()
     if len(line) == 0 {
-      return unspentTxs, txIndexes
+      break
     }
     if err != nil {
       log.Fatal(err)
@@ -370,7 +391,14 @@ func getUnspentTxs(limit int) ([]Transaction, []int) {
     // balance += block.CountMyMoney()
 
     // money := -1
-    spent := make(map[string]byte)
+    spent := make(map[string]int)
+
+    for _, tx := range PendingTxs {
+      if IsMySpending(tx) {
+        spent[tx.Txin[0].IdRef] = -1
+      }
+    }
+
     for _, tx := range block.Txs {
       lineIndex+=1
       if  _, ok := spent[tx.Id]; ok {
@@ -422,21 +450,41 @@ func getUnspentTxs(limit int) ([]Transaction, []int) {
     // return money
   }
 
+  if (balance < limit) {
+    return []Transaction{}, []int{}
+  }
+
   return unspentTxs, txIndexes
 }
 
-func getBalance () int {
+func getBalance () (int, int) {
   unspentTxs, _ := getUnspentTxs(-1)
-  balance := 0
+  pendingTxsOut, pendingTxsIn := getPendingTransactions()
+  pendingTxsInMap  := make(map[string]TXIN)
+
+  for _, t := range pendingTxsIn {
+    pendingTxsInMap[t.IdRef] = t
+  }
+
+  ConfirmedBalance := 0
   for _, tx := range unspentTxs {
+    if _, ok := pendingTxsInMap[tx.Id]; ok {
+      continue
+    }
+
     for _, txout := range tx.Txout {
       if txout.Address == base64.StdEncoding.EncodeToString(pubKey) {
-        balance += txout.Amount
+        ConfirmedBalance += txout.Amount
       }
     }
   }
 
-  return balance
+  UnconfirmedBalance := 0
+  for _, tx := range pendingTxsOut {
+    UnconfirmedBalance += tx.Amount
+  }
+
+  return ConfirmedBalance, UnconfirmedBalance
 }
 
 func getPrivateKey() ecdsa.PrivateKey {
@@ -456,13 +504,55 @@ func getPrivateKey() ecdsa.PrivateKey {
   return copy
 }
 
+func getPendingTransactions() ([]TXOUT, []TXIN) {
+  var txsout []TXOUT
+  var txsin  []TXIN
+  for _, tx := range PendingTxs {
+    for _, txout := range tx.Txout {
+      // fmt.Print(txout.Address)
+
+      if txout.Address == base64.StdEncoding.EncodeToString(pubKey) {
+        txsout = append(txsout, txout)
+      }
+    }
+    for _, txin  := range tx.Txin {
+      r := big.Int{}
+      s := big.Int{}
+      if len(txin.Sign) == 0 {
+        continue
+      }
+
+      curve := elliptic.P256()
+
+      sigLen := len(txin.Sign)
+      r.SetBytes([]byte(txin.Sign)[:(sigLen / 2)])
+      s.SetBytes([]byte(txin.Sign)[(sigLen / 2):])
+
+      x := big.Int{}
+      y := big.Int{}
+      keyLen := len(pubKey)
+      x.SetBytes(pubKey[:(keyLen / 2)])
+      y.SetBytes(pubKey[(keyLen / 2):])
+
+      rawPubKey := ecdsa.PublicKey{Curve: curve, X: &x, Y: &y}
+
+      isMySpending := ecdsa.Verify(&rawPubKey, []byte(txin.IdRef), &r, &s)
+
+      if isMySpending {
+        txsin = append(txsin, txin)
+      }
+    }
+  }
+  return txsout, txsin
+}
+
 func CreateTransaction(unspentTxs []Transaction, txIndexes []int, amount int, address string) Transaction {
   var txsin []TXIN
   privateKey := getPrivateKey()
 
   size := privateKey.Curve
   fmt.Println(size)
-  spew.Dump(*(&privateKey))
+  // spew.Dump(*(&privateKey))
 
   totalInput := 0
   for i, tx  := range unspentTxs {
@@ -477,13 +567,14 @@ func CreateTransaction(unspentTxs []Transaction, txIndexes []int, amount int, ad
 
   var txsout []TXOUT
   txout  := TXOUT{address, amount}
-  change := TXOUT{string(pubKey), totalInput - amount}
+  change := TXOUT{base64.StdEncoding.EncodeToString(pubKey), totalInput - amount}
   txsout = append(txsout, txout)
   if change.Amount > 0 {
     txsout = append(txsout, change)
   }
 
   newtx   := Transaction{"", txsin, txsout}
+  spew.Dump(newtx)
   newtx.Id = newtx.Hash()
   return newtx
 }
@@ -504,8 +595,14 @@ func send() {
   _, _ = fmt.Scanf("%s", &address)
 
   unspentTxs, txIndexes := getUnspentTxs(amount)
+  if len(unspentTxs) == 0 {
+    fmt.Println("Not enough money")
+    return
+  }
+
   sendTx := CreateTransaction(unspentTxs, txIndexes, amount, address)
-  spew.Dump(sendTx)
+
+  PendingTxs = append(PendingTxs, sendTx)
   // txsToSpend = getSufficientInput(amount)
 
 }
@@ -517,6 +614,7 @@ func showHelp() {
   fmt.Println("peers            show list of all available peers");
   fmt.Println("transactions     show list of your transactions");
   fmt.Println("send             [Amount][Address] send money");
+  fmt.Println("pending          show your pending transactions");
 }
 
 func processInput (cmd string) {
@@ -524,12 +622,17 @@ func processInput (cmd string) {
   case "help":
     showHelp();
   case "transactions":
-    getTransactions();
+    showTransactions();
   case "send":
     send();
+  case "pending":
+    txsout, txsin := getPendingTransactions()
+    spew.Dump(txsout)
+    spew.Dump(txsin)
   case "balance":
-      balance := getBalance()
-      fmt.Println("Your balance: ", balance, " ultramegacoins");
+      confirmedBalance, unconfirmedBalance := getBalance()
+      fmt.Println("Your confirmed balance: ", confirmedBalance, " ultramegacoins");
+      fmt.Println("Your pending   balance:   ", unconfirmedBalance, " ultramegacoins");
   default:
     fmt.Println("Unknown command %s.\nType 'help' to get full command list", cmd)
   }
