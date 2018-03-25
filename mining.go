@@ -24,6 +24,8 @@ func Mine() {
       continue
     }
 
+    PendingTransactionsMutex.Lock()
+
     timestamp := time.Now().String()
     blockBytes := append([]byte(timestamp), lastBlock.Hash...)
     blockBytes  = append(blockBytes, nonce[:]...)
@@ -40,6 +42,8 @@ func Mine() {
       propagateBlock(newBlock)
     }
 
+    PendingTransactionsMutex.Unlock()
+
     if !mining {
       fmt.Println("Stopped mining")
       fmt.Print(">")
@@ -49,6 +53,11 @@ func Mine() {
 }
 
 func OnPendingTxsAdded(sendTx Transaction) {
+  PendingTransactionsMutex.Lock()
+  defer PendingTransactionsMutex.Unlock()
+
+  PendingTxs = append(PendingTxs, sendTx)
+
   if !mining {
     return
   }

@@ -8,12 +8,16 @@ import (
   "os"
   "io/ioutil"
   "fmt"
+  "sync"
 )
 
 var pubKey []byte
 var walletFileName = "wallet.dat"
+var walletMutex sync.Mutex
 
 func getPrivateKey() ecdsa.PrivateKey {
+  walletMutex.Lock()
+  defer walletMutex.Unlock()
   file, _ := ioutil.ReadFile(walletFileName)
 
   if string(file) == "" {
@@ -31,6 +35,9 @@ func getPrivateKey() ecdsa.PrivateKey {
 }
 
 func CreateWalllet() error {
+  walletMutex.Lock()
+  defer walletMutex.Unlock()
+
   curve := elliptic.P256()
   private, err := ecdsa.GenerateKey(curve, rand.Reader)
   if err != nil {

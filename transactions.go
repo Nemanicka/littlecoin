@@ -7,7 +7,10 @@ import (
   "encoding/base64"
   "fmt"
   "github.com/davecgh/go-spew/spew"
+  "sync"
 )
+
+var PendingTransactionsMutex sync.Mutex
 
 type TXOUT struct {
   Address string;
@@ -91,6 +94,8 @@ func showTransactions () {
     return false, nil
   })
 
+  PendingTransactionsMutex.Lock()
+  defer PendingTransactionsMutex.Unlock()
   showTransactionsWithStatus(PendingTxs, "pending")
 }
 

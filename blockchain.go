@@ -7,9 +7,11 @@ import (
   "bufio"
   "errors"
   "github.com/serverhorror/rog-go/reverse"
+  "sync"
 )
 
 var blockchainFileName = "blockchain.dat"
+var blockchainMutex sync.Mutex
 
 type Block struct {
   Timestamp string
@@ -47,6 +49,9 @@ func CreateGenesisBlock() Block {
 
 
 func AppendToBlockChain(block Block) error {
+  blockchainMutex.Lock()
+  defer blockchainMutex.Unlock()
+
   var blockfile, _ = os.OpenFile(blockchainFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
   defer blockfile.Close()
 
@@ -59,48 +64,12 @@ func AppendToBlockChain(block Block) error {
   return nil
 }
 
-//
-// type BlockchainReader struct {
-//   reader *bufio.Reader
-//   rReader *reverse.Scanner
-//   file   *os.File
-// }
-//
-// func CreateForward() error {
-//   b := BlockchainReader{}
-//   b.file, _ = os.OpenFile(blockchainFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
-//   b.reader = bufio.NewReader(b.file)
-//   return nil
-// }
-//
-// func (b *BlockchainReader) Destroy() error {
-//     b.file.Close()
-//     return nil
-// }
-//
-// func (b *BlockchainReader) NextBlock() (Block, error) {
-//   line, _, err := b.reader.ReadLine()
-//   if len(line) == 0 {
-//     return Block{}, nil
-//   }
-//
-//   if err != nil {
-//     return Block{}, err
-//   }
-//
-//   var block Block
-//   err = json.Unmarshal(line, &block)
-//   if err != nil {
-//     return Block{}, err
-//   }
-//
-//   return block, nil
-// }
-//
-
 type onBlock func(block Block) (bool, error)
 
 func IterateBlockchainForward(lambda onBlock) error {
+  blockchainMutex.Lock()
+  defer blockchainMutex.Unlock()
+
   var blockfile, _ = os.OpenFile(blockchainFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
   defer blockfile.Close()
   reader := bufio.NewReader(blockfile)
@@ -136,6 +105,9 @@ func IterateBlockchainForward(lambda onBlock) error {
 }
 
 func IterateBlockchainBackward(lambda onBlock) error {
+  blockchainMutex.Lock()
+  defer blockchainMutex.Unlock()
+
   var blockfile, _ = os.OpenFile(blockchainFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
   defer blockfile.Close()
 

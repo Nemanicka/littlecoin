@@ -21,11 +21,13 @@ func propagateBlock(block Block) {
 
 }
 
-// var Blockchain []Block
 var PendingTxs []Transaction
 var VerifiedPendingTxs []Transaction
 
 func loadFiles() {
+  blockchainMutex.Lock()
+  defer blockchainMutex.Unlock()
+
   if _, err := os.Stat(blockchainFileName); err == nil {
     var bfile, _ = os.OpenFile(blockchainFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
     defer bfile.Close()
@@ -45,6 +47,8 @@ func loadFiles() {
     }
   }
 
+  walletMutex.Lock()
+  defer walletMutex.Unlock()
 
   file, _ := ioutil.ReadFile(walletFileName)
 
@@ -60,7 +64,6 @@ func loadFiles() {
   pubKey = append(private.PublicKey.X.Bytes(), private.PublicKey.Y.Bytes()...)
   h := base64.StdEncoding.EncodeToString(pubKey)
   log.Print("Load: ", h)
-
 }
 
 func DoesKeyUnlocksTransaction (key []byte, txin TXIN) bool {
@@ -84,9 +87,9 @@ func DoesKeyUnlocksTransaction (key []byte, txin TXIN) bool {
 
   rawPubKey := ecdsa.PublicKey{Curve: curve, X: &x, Y: &y}
 
-  isMySpending := ecdsa.Verify(&rawPubKey, []byte(txin.IdRef), &r, &s)
+  unlocks := ecdsa.Verify(&rawPubKey, []byte(txin.IdRef), &r, &s)
 
-  if isMySpending {
+  if unlocks {
     return true
   }
   return false
@@ -109,11 +112,13 @@ func getUnspentTxs(limit int) ([]Transaction) {
   spent := make(map[string]int)
 
   // Store already spent transaction from pending txs
+  PendingTransactionsMutex.Lock()
   for _, tx := range PendingTxs {
     if IsMySpending(tx) {
       spent[string(tx.Txin[0].IdRef)] = 1
     }
   }
+  PendingTransactionsMutex.Unlock()
 
   IterateBlockchainBackward(func(block Block) (bool, error)  {
     for _, tx := range block.Txs {
@@ -185,6 +190,9 @@ func getBalance () (int, int) {
 }
 
 func getPendingTransactions() ([]TXOUT, []TXIN) {
+  PendingTransactionsMutex.Lock()
+  defer PendingTransactionsMutex.Unlock()
+
   var txsout []TXOUT
   var txsin  []TXIN
   for _, tx := range PendingTxs {
@@ -225,6 +233,5 @@ func send() {
 
   sendTx := CreateTransaction(unspentTxs, amount, address)
 
-  PendingTxs = append(PendingTxs, sendTx)
   OnPendingTxsAdded(sendTx);
 }
