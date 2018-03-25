@@ -1,30 +1,13 @@
 package main
 
 import (
-  // "crypto/sha256"
-  // "crypto/rsa"
-  // "crypto/rand"
-  // "crypto/elliptic"
+  "crypto/rand"
+  "crypto/elliptic"
   "crypto/ecdsa"
   "crypto/x509"
-  // "encoding/base64"
-  // "encoding/hex"
-  // "encoding/json"
-  // "io"
-  // "log"
-  // "net/http"
-  // "os"
-  // "time"
-  // "bufio"
+  "os"
   "io/ioutil"
-  // "math/big"
   "fmt"
-  // "bytes"
-  // "github.com/davecgh/go-spew/spew"
-  // "github.com/gorilla/mux"
-  // "github.com/joho/godotenv"
-  // "github.com/serverhorror/rog-go/reverse"
-  // "github.com/dustin/go-hashset"
 )
 
 var pubKey []byte
@@ -45,4 +28,20 @@ func getPrivateKey() ecdsa.PrivateKey {
 
   copy := *private
   return copy
+}
+
+func CreateWalllet() error {
+  curve := elliptic.P256()
+  private, err := ecdsa.GenerateKey(curve, rand.Reader)
+  if err != nil {
+    return err
+  }
+
+  var wallet, _ = os.OpenFile(walletFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
+  defer wallet.Close()
+
+  pubKey = append(private.PublicKey.X.Bytes(), private.PublicKey.Y.Bytes()...)
+  keyStr, _ := x509.MarshalECPrivateKey(private)
+  wallet.Write(keyStr)
+  return nil
 }

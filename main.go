@@ -1,11 +1,6 @@
 package main
 
 import (
-  "crypto/rand"
-  "crypto/elliptic"
-  "crypto/ecdsa"
-  "crypto/x509"
-  "encoding/json"
   "log"
   "net/http"
   "os"
@@ -51,7 +46,7 @@ func showHelp() {
   fmt.Println("pending          show your pending transactions");
 }
 
-func processInput (cmd string) {
+func processInput(cmd string) {
   switch cmd {
   case "help":
     showHelp();
@@ -75,16 +70,15 @@ func processInput (cmd string) {
     spew.Dump(txsout)
     spew.Dump(txsin)
   case "balance":
-      confirmedBalance, unconfirmedBalance := getBalance()
-      fmt.Println("Your confirmed balance: ", confirmedBalance, " ultramegacoins");
-      fmt.Println("Your pending   balance:   ", unconfirmedBalance, " ultramegacoins");
+    confirmedBalance, unconfirmedBalance := getBalance()
+    fmt.Println("Your confirmed balance: ", confirmedBalance, " ultramegacoins");
+    fmt.Println("Your pending   balance:   ", unconfirmedBalance, " ultramegacoins");
   default:
     fmt.Println("Unknown command %s.\nType 'help' to get full command list", cmd)
   }
-
 }
 
-func getInput () {
+func getInput() {
   buf := bufio.NewReader(os.Stdin)
   fmt.Print("> ")
   command, err := buf.ReadBytes('\n')
@@ -97,59 +91,41 @@ func getInput () {
   defer getInput()
 }
 
-func main () {
+func main() {
+  // Load environmental vars - address, etc
   err := godotenv.Load()
   if err != nil {
     log.Fatal(err)
   }
 
+  // Load blockchain.dat and awallet.dat
   loadFiles()
 
-  go func() {
-    log.Print("len = ", len(lastBlock.Hash))
-    if len(lastBlock.Hash) == 0 {
-      var blockfile, _ = os.OpenFile(blockchainFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
-      defer blockfile.Close()
-      /// Hardcode genesis block
-      txin  := TXIN{[]byte{}, []byte{}}
-      txout := TXOUT{"zZvNvCqtvZ3FhUjO+QjoiBQoj+Pgj5GNJDO7z2HifSxGvDfjKHuutUQWLCHifFyXfYNss/LAxYschi3oLLnKww==", 50}
-      tx    := Transaction{[]byte{}, []TXIN{txin}, []TXOUT{txout}}
-      tx.Id  = tx.Hash()
-      txs   := []Transaction{tx}
-      genesisBlock := Block{"10.03.2018 easy peasy lemon squeezy", []byte{},
-                            []byte{'G', 'E', 'N', 'E', 'S', 'I', 'S'}, txs,
-                            []byte{'N', 'O', 'N', 'C', 'E'}}
-      genesisBlock.Hash = genesisBlock.HashBlock()
-      spew.Dump(genesisBlock)
-      // Blockchain = append(Blockchain, genesisBlock)
-      str, err2 := json.Marshal(genesisBlock)
-      if err2 != nil {
-        log.Fatal(err)
-        return
-      }
-      blockfile.WriteString(string(str) + "\n")
+  // If blockchain file is empty, create genesis block
+  if len(lastBlock.Hash) == 0 {
+    genesisBlock := CreateGenesisBlock()
+    fmt.Println("Created genesis block")
+    err = AppendToBlockChain(genesisBlock)
+
+    if err != nil {
+      log.Fatal(err)
     }
+  }
 
-    if len(pubKey)==0 {
-      curve := elliptic.P256()
-    	private, err := ecdsa.GenerateKey(curve, rand.Reader)
-    	if err != nil {
-    		log.Panic(err)
-    	}
+  // If wallet file is empty, create private/public keys
+  if len(pubKey)==0 {
+    err = CreateWalllet()
 
-      var wallet, _    = os.OpenFile(walletFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
-      defer wallet.Close()
-
-    	pubKey = append(private.PublicKey.X.Bytes(), private.PublicKey.Y.Bytes()...)
-      str, _ := x509.MarshalECPrivateKey(private)
-      wallet.Write(str)
+    if err != nil {
+      log.Fatal(err)
     }
+  }
 
-  } ()
-
+  // Listen to the user's input
   go func() {
     getInput()
   } ()
 
+  // Listen to network
   log.Fatal(run())
 }

@@ -63,14 +63,13 @@ func loadFiles() {
 
 }
 
-func keyUnlocksTransaction (key []byte, txin TXIN) bool {
+func DoesKeyUnlocksTransaction (key []byte, txin TXIN) bool {
   if len(txin.Sign) == 0 && len(txin.IdRef) == 0 {
     return false
   }
 
   curve := elliptic.P256()
   sigLen := len(txin.Sign)
-
 
   r := big.Int{}
   s := big.Int{}
@@ -100,83 +99,52 @@ func IsMySpending (tx Transaction) bool {
 
   txin := tx.Txin[0]
 
-  return keyUnlocksTransaction(pubKey, txin)
+  return DoesKeyUnlocksTransaction(pubKey, txin)
 }
 
-
-
-
 func getUnspentTxs(limit int) ([]Transaction) {
-  var blockfile, _ = os.OpenFile(blockchainFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
-  defer blockfile.Close()
-
   var unspentTxs []Transaction
   balance   := 0
 
-  scanner := reverse.NewScanner(blockfile)
-  scanner.Split(bufio.ScanLines)
   spent := make(map[string]int)
 
-  for {
-    retcode := scanner.Scan()
-    if !retcode {
-      break
+  // Store already spent transaction from pending txs
+  for _, tx := range PendingTxs {
+    if IsMySpending(tx) {
+      spent[string(tx.Txin[0].IdRef)] = 1
     }
+  }
 
-    line := scanner.Text()
-
-    var block Block
-    err := json.Unmarshal([]byte(line), &block)
-    if err != nil {
-      fmt.Println(err)
-      return unspentTxs
-    }
-
-    for _, tx := range PendingTxs {
-      if IsMySpending(tx) {
-        spent[string(tx.Txin[0].IdRef)] = 1
-      }
-    }
-
+  IterateBlockchainBackward(func(block Block) (bool, error)  {
     for _, tx := range block.Txs {
-      fmt.Println("Hashmap len = ", len(spent))
-
-      for k , _ := range spent {
-        fmt.Println("spent map = ", k)
-      }
-
+      // Store already spent transaction from each block
       if IsMySpending(tx) {
-        fmt.Println("spent id = ", tx.Txin[0].IdRef)
         spent[string(tx.Txin[0].IdRef)] = 1
       }
 
+      // If this txs is already spent, continue
       if  _, ok := spent[string(tx.Id)]; ok {
-        fmt.Println("Cont?")
         continue
-      } else {
-        fmt.Println("no")
       }
 
       isUnspent := false
       for _, txout := range tx.Txout {
-        /// assume there is only one out tx per wallet
         if txout.Address == base64.StdEncoding.EncodeToString(pubKey) {
-          // txIndexes  = append(txIndexes, lineIndex)
           balance   += txout.Amount
           isUnspent = true
         }
       }
 
       if isUnspent {
-        fmt.Println("unspent = ", tx.Id)
         unspentTxs = append(unspentTxs, tx)
       }
 
       if limit > 0 && balance >= limit {
-        return unspentTxs
+        return true, nil
       }
     }
-  }
+    return false, nil
+  })
 
 
   if (balance < limit) {
@@ -221,36 +189,13 @@ func getPendingTransactions() ([]TXOUT, []TXIN) {
   var txsin  []TXIN
   for _, tx := range PendingTxs {
     for _, txout := range tx.Txout {
-      // fmt.Print(txout.Address)
-
       if txout.Address == base64.StdEncoding.EncodeToString(pubKey) {
         txsout = append(txsout, txout)
       }
     }
+
     for _, txin  := range tx.Txin {
-      r := big.Int{}
-      s := big.Int{}
-      if len(txin.Sign) == 0 {
-        continue
-      }
-
-      curve := elliptic.P256()
-
-      sigLen := len(txin.Sign)
-      r.SetBytes([]byte(txin.Sign)[:(sigLen / 2)])
-      s.SetBytes([]byte(txin.Sign)[(sigLen / 2):])
-
-      x := big.Int{}
-      y := big.Int{}
-      keyLen := len(pubKey)
-      x.SetBytes(pubKey[:(keyLen / 2)])
-      y.SetBytes(pubKey[(keyLen / 2):])
-
-      rawPubKey := ecdsa.PublicKey{Curve: curve, X: &x, Y: &y}
-
-      isMySpending := ecdsa.Verify(&rawPubKey, []byte(txin.IdRef), &r, &s)
-
-      if isMySpending {
+      if DoesKeyUnlocksTransaction(pubKey, txin) {
         txsin = append(txsin, txin)
       }
     }
@@ -258,14 +203,9 @@ func getPendingTransactions() ([]TXOUT, []TXIN) {
   return txsout, txsin
 }
 
-
-
-
-
 func send() {
   var amount  int
   var address string
-
 
   fmt.Print("Amount: ")
   _, err := fmt.Scanf("%d", &amount)
@@ -287,23 +227,4 @@ func send() {
 
   PendingTxs = append(PendingTxs, sendTx)
   OnPendingTxsAdded(sendTx);
-  // txsToSpend = getSufficientInput(amount)
-
-}
-
-
-func (block Block) CountMyMoney() int {
-  money := 0;
-  // fmt.Println("count...");
-  for _, tx := range block.Txs {
-    // fmt.Println("test1");
-    for _, txout := range tx.Txout {
-      // fmt.Println("test2", base64.StdEncoding.EncodeToString(txout.Address),  " pub = ", base64.StdEncoding.EncodeToString(pubKey));
-      if txout.Address == base64.StdEncoding.EncodeToString(pubKey) {
-        money += txout.Amount;
-      }
-    }
-  }
-
-  return money
 }

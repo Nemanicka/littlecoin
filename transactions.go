@@ -2,37 +2,18 @@ package main
 
 import (
   "crypto/sha256"
-  // "crypto/rsa"
   "crypto/rand"
-  // "crypto/elliptic"
   "crypto/ecdsa"
-  // "crypto/x509"
   "encoding/base64"
-  // "encoding/hex"
-  "encoding/json"
-  // "io"
-  // "log"
-  // "net/http"
-  "os"
-  // "time"
-  "bufio"
-  // "io/ioutil"
-  // "math/big"
   "fmt"
-  // "bytes"
   "github.com/davecgh/go-spew/spew"
-  // "github.com/gorilla/mux"
-  // "github.com/joho/godotenv"
-  // "github.com/serverhorror/rog-go/reverse"
-  // "github.com/dustin/go-hashset"
 )
 
 type TXOUT struct {
   Address string;
   Amount int;
-  //...
 }
-//
+
 func (txout TXOUT) Hash() []byte {
   txoutBytes := append([]byte(txout.Address), byte(txout.Amount))
   hash := sha256.Sum256(txoutBytes)
@@ -42,7 +23,6 @@ func (txout TXOUT) Hash() []byte {
 type TXIN struct {
   Sign     []byte
   IdRef    []byte
-  //...
 }
 
 func (txin TXIN) Hash() []byte {
@@ -76,18 +56,11 @@ func CreateTransaction(unspentTxs []Transaction, amount int, address string) Tra
   var txsin []TXIN
   privateKey := getPrivateKey()
 
-  size := privateKey.Curve
-  fmt.Println(size)
-  // spew.Dump(*(&privateKey))
-
   totalInput := 0
   for _, tx  := range unspentTxs {
-    fmt.Println("unspent id = ", tx.Id)
-
     r,s, _   := ecdsa.Sign(rand.Reader, &privateKey, []byte(tx.Id))
     sign     := append(r.Bytes(),s.Bytes()...)
     txin     := TXIN{sign, tx.Id}
-
     txsin     = append(txsin, txin)
     for _, txout := range tx.Txout {
       if txout.Address == base64.StdEncoding.EncodeToString(pubKey) {
@@ -105,36 +78,19 @@ func CreateTransaction(unspentTxs []Transaction, amount int, address string) Tra
   }
 
   newtx   := Transaction{[]byte{}, txsin, txsout}
+
   spew.Dump(newtx)
+
   newtx.Id = newtx.Hash()
   return newtx
 }
 
 func showTransactions () {
-  var blockfile, _ = os.OpenFile(blockchainFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
-  defer blockfile.Close()
-  reader := bufio.NewReader(blockfile)
-
-  for {
-    line, _, err := reader.ReadLine()
-    if len(line) == 0 {
-      break
-
-    }
-    if err != nil {
-      fmt.Println(err)
-      return
-    }
-
-    var block Block
-    err = json.Unmarshal(line, &block)
-    if err != nil {
-      fmt.Println(err)
-      return
-    }
-
+  IterateBlockchainForward(func(block Block) (bool, error) {
     showTransactionsWithStatus(block.Txs, "confirmed")
-  }
+    return false, nil
+  })
+
   showTransactionsWithStatus(PendingTxs, "pending")
 }
 
@@ -142,7 +98,6 @@ func showTransactions () {
 func showTransactionsWithStatus (txs []Transaction, status string) {
   for _, tx := range txs {
     isMy := IsMySpending(tx)
-    // txSpendings := 0
     outMap := make(map[string]int)
     for _, txout := range tx.Txout {
       if txout.Address == base64.StdEncoding.EncodeToString(pubKey) {
