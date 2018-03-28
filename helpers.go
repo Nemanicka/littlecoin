@@ -25,6 +25,8 @@ var PendingTxs []Transaction
 var VerifiedPendingTxs []Transaction
 
 func loadFiles() {
+  loadAddresses()
+
   blockchainMutex.Lock()
   defer blockchainMutex.Unlock()
 
@@ -61,6 +63,7 @@ func loadFiles() {
     log.Fatal(err)
     return
   }
+
   pubKey = append(private.PublicKey.X.Bytes(), private.PublicKey.Y.Bytes()...)
   h := base64.StdEncoding.EncodeToString(pubKey)
   log.Print("Load: ", h)

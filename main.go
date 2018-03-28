@@ -42,8 +42,10 @@ func showHelp() {
   fmt.Println("balance          show your balance");
   fmt.Println("peers            show list of all available peers");
   fmt.Println("transactions     show list of your transactions");
-  fmt.Println("send             [Amount][Address] send money");
+  fmt.Println("send             send money... follow instructions");
   fmt.Println("pending          show your pending transactions");
+  fmt.Println("mine             start mining");
+  fmt.Println("addbuddy         add certain peer to your address book");
 }
 
 func processInput(cmd string) {
@@ -120,6 +122,10 @@ func main() {
       log.Fatal(err)
     }
   }
+
+  initAddresses()
+
+  pull()
 
   // Listen to the user's input
   go func() {
