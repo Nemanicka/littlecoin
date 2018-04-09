@@ -2,39 +2,21 @@ package main
 
 import (
   "log"
-  "net/http"
+  // "net"
   "os"
-  "time"
+  // "io"
+  // "time"
   "bufio"
   "fmt"
   "github.com/davecgh/go-spew/spew"
-  "github.com/gorilla/mux"
+  // "github.com/gorilla/mux"
   "github.com/joho/godotenv"
 )
 
-func run() error {
-  mux := makeMuxRouter()
-  httpAddr := os.Getenv("ADDR")
-  log.Println("Listening on", os.Getenv("ADDR"))
-  s:= &http.Server{
-    Addr           : ":" + httpAddr,
-    Handler        : mux,
-    ReadTimeout    : 10 * time.Second,
-    WriteTimeout   : 10 * time.Second,
-    MaxHeaderBytes : 1 << 20,
-  }
-
-  if err := s.ListenAndServe(); err != nil {
-    return err
-  }
-
-  return nil
-}
-
-func makeMuxRouter() http.Handler {
-  muxRouter := mux.NewRouter()
-  return muxRouter
-}
+// func makeMuxRouter() http.Handler {
+//   muxRouter := mux.NewRouter()
+//   return muxRouter
+// }
 
 
 func showHelp() {
@@ -73,8 +55,14 @@ func processInput(cmd string) {
     spew.Dump(txsin)
   case "balance":
     confirmedBalance, unconfirmedBalance := getBalance()
-    fmt.Println("Your confirmed balance: ", confirmedBalance, " ultramegacoins");
-    fmt.Println("Your pending   balance:   ", unconfirmedBalance, " ultramegacoins");
+    fmt.Println("Your confirmed balance: ", confirmedBalance, " ultramegacoins")
+    fmt.Println("Your pending   balance:   ", unconfirmedBalance, " ultramegacoins")
+  case "addbuddy":
+    addBuddy()
+  case "peers":
+    showAddresses()
+  // case "sync":
+    // syncData()
   default:
     fmt.Println("Unknown command %s.\nType 'help' to get full command list", cmd)
   }
@@ -125,13 +113,17 @@ func main() {
 
   initAddresses()
 
-  pull()
+  initNetwork.Add(1)
 
-  // Listen to the user's input
   go func() {
-    getInput()
+    runServer()
   } ()
 
-  // Listen to network
-  log.Fatal(run())
+  initNetwork.Wait()
+
+  connect()
+
+  syncData()
+
+  getInput()
 }

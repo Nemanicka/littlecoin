@@ -141,3 +141,30 @@ func IterateBlockchainBackward(lambda onBlock) error {
 
   return nil
 }
+
+func getLastBlock() (Block, error) {
+  blockchainMutex.Lock()
+  defer blockchainMutex.Unlock()
+
+  var blockfile, _ = os.OpenFile(blockchainFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
+  defer blockfile.Close()
+
+  scanner := reverse.NewScanner(blockfile)
+  scanner.Split(bufio.ScanLines)
+
+  var block Block
+  retcode := scanner.Scan()
+
+  if !retcode {
+    return block, errors.New("No lines read from blockchain")
+  }
+
+  line := scanner.Text()
+
+  err := json.Unmarshal([]byte(line), &block)
+  if err != nil {
+    return block, err
+  }
+
+  return block, nil
+}

@@ -69,7 +69,7 @@ func loadFiles() {
   log.Print("Load: ", h)
 }
 
-func DoesKeyUnlocksTransaction (key []byte, txin TXIN) bool {
+func DoesKeyUnlocksTransaction(key []byte, txin TXIN) bool {
   if len(txin.Sign) == 0 && len(txin.IdRef) == 0 {
     return false
   }
@@ -98,7 +98,7 @@ func DoesKeyUnlocksTransaction (key []byte, txin TXIN) bool {
   return false
 }
 
-func IsMySpending (tx Transaction) bool {
+func IsMySpending(tx Transaction) bool {
   if len(tx.Txin) == 0 {
     return false
   }
@@ -162,7 +162,7 @@ func getUnspentTxs(limit int) ([]Transaction) {
   return unspentTxs
 }
 
-func getBalance () (int, int) {
+func getBalance() (int, int) {
   unspentTxs := getUnspentTxs(-1)
   pendingTxsOut, pendingTxsIn := getPendingTransactions()
   pendingTxsInMap  := make(map[string]TXIN)
