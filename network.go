@@ -13,6 +13,7 @@ import (
   "io"
   "encoding/json"
   "encoding/binary"
+  "strconv"
   //"github.com/davecgh/go-spew/spew"
   //"github.com/gorilla/mux"
   //"github.com/joho/godotenv"
@@ -99,6 +100,7 @@ func sendBlockchain(message []byte, conn net.Conn) {
   sending := false
 
   IterateBlockchainForward(func(block Block) (bool, error) {
+    fmt.Println(block.Hash, "|", message)
     if bytes.Equal(message, block.Hash) {
       fmt.Println("FOUND")
       sending = true
@@ -109,17 +111,30 @@ func sendBlockchain(message []byte, conn net.Conn) {
         if err != nil {
           return false, err
         }
-
+        fmt.Println("sending block")
         conn.Write(message)
       }
     }
 
     return false, nil
   })
+}
 
-  m, _ := createEndMessage()
+func onBlockReceived(messageBody []byte) error {
+  var block Block
+  err := json.Unmarshal(messageBody, &block)
+  if err != nil {
+    fmt.Println("Received block is invalid");
+    return err
+  }
 
-  conn.Write(m)
+  err = AppendToBlockChain(block)
+  if err != nil {
+    fmt.Println(err)
+    return err
+  }
+
+  return nil
 }
 
 func handleMessages(conn net.Conn) error {
@@ -165,15 +180,23 @@ func handleMessages(conn net.Conn) error {
       sendBlockchain(messageBody, conn)
     case End:
       return errors.New("THEEND")
+    case B:
+      onBlockReceived(messageBody)
     // sendBlockchain
     default: return errors.New("Invalid message")
   }
+
+  m, _ := createEndMessage()
+  conn.Write(m)
 
   return nil
 }
 
 func runServer() error {
-  ln, err := net.Listen("tcp", ":12321")
+
+  port := os.Getenv("PORT")
+  log.Println("Listening on", os.Getenv("PORT"))
+  ln, err := net.Listen("tcp", ":" + port)
   if (err != nil) {
     return err
   }
@@ -210,7 +233,7 @@ func connect() {
   for {
     // get next address
     fmt.Println("Dialing...")
-    conn, err := net.Dial("tcp", addresses[addressIndex] + ":12321")
+    conn, err := net.Dial("tcp", addresses[addressIndex])
     if (err != nil) {
       fmt.Println("Cannot dial " + addresses[addressIndex])
       if addressIndex == len(addresses) - 1 {
@@ -265,9 +288,11 @@ func initAddresses() {
 
     var file, _ = os.OpenFile(addressesFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
     defer file.Close()
-    addresses = append(addresses, string(body));
+    address := string(body[:len(body)-1]) + ":" + os.Getenv("PORT")
 
-    file.WriteString(string(body))
+    addresses = append(addresses, address);
+
+    file.WriteString(address + "\n")
   }
 }
 
@@ -306,10 +331,10 @@ func syncData() {
   // fmt.Println(len(int))
   // fmt.Println(len(uint))
 
-
+  blockchainMutex.Lock()
   lastBlock, _ := getLastBlock()
+  blockchainMutex.Unlock()
   lastBlockHash := lastBlock.Hash
-  // buf := make([]byte, binary.MaxVarintLen64)
   messageType := new(bytes.Buffer)
   err := binary.Write(messageType, binary.LittleEndian, uint8(Sync))
   if err != nil {
@@ -416,6 +441,9 @@ func addBuddy() {
   fmt.Print("Address: ")
   bytes, err := buf.ReadBytes('\n')
   ipstr := string(bytes[:len(bytes) - 1])
+  fmt.Print("Port: ")
+  bytes, _  = buf.ReadBytes('\n')
+  portBytes := string(bytes[:len(bytes) - 1])
 
   if err != nil {
     fmt.Println(err)
@@ -425,6 +453,18 @@ func addBuddy() {
       fmt.Println("This address is not valid, try again")
       return
     }
+
+    port, err2 := strconv.Atoi(string(portBytes))
+    if err2 != nil {
+      fmt.Println(err2)
+      return
+    }
+
+    if (port < 1500 || port > 50000) {
+      fmt.Println("Port should be in range from 1500 to 50000")
+    }
+
+    address := ipstr + ":" + string(portBytes)
 
     for _, address := range addresses {
       if ipstr == address {
@@ -439,8 +479,8 @@ func addBuddy() {
     var file, _ = os.OpenFile(addressesFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
     defer file.Close()
 
-    addresses = append(addresses, ipstr + "\n");
-    file.WriteString(ipstr)
+    addresses = append(addresses, address);
+    file.WriteString(address + "\n")
 
     // emitMessage(ipstr, Message{"GET", url.Values{}, "updates"})
   }

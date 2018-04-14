@@ -8,6 +8,7 @@ import (
   "errors"
   "github.com/serverhorror/rog-go/reverse"
   "sync"
+  "bytes"
 )
 
 var blockchainFileName = "blockchain.dat"
@@ -51,6 +52,11 @@ func CreateGenesisBlock() Block {
 func AppendToBlockChain(block Block) error {
   blockchainMutex.Lock()
   defer blockchainMutex.Unlock()
+
+  lastBlock, _ := getLastBlock()
+  if !bytes.Equal(lastBlock.Hash, block.PrevHash) {
+    return errors.New("Previous hash is invalid")
+  }
 
   var blockfile, _ = os.OpenFile(blockchainFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
   defer blockfile.Close()
@@ -143,9 +149,6 @@ func IterateBlockchainBackward(lambda onBlock) error {
 }
 
 func getLastBlock() (Block, error) {
-  blockchainMutex.Lock()
-  defer blockchainMutex.Unlock()
-
   var blockfile, _ = os.OpenFile(blockchainFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
   defer blockfile.Close()
 

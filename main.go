@@ -91,6 +91,10 @@ func main() {
   // Load blockchain.dat and awallet.dat
   loadFiles()
 
+  blockchainMutex.Lock()
+  lastBlock, _ := getLastBlock()
+  blockchainMutex.Unlock()
+
   // If blockchain file is empty, create genesis block
   if len(lastBlock.Hash) == 0 {
     genesisBlock := CreateGenesisBlock()

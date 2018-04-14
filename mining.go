@@ -11,7 +11,6 @@ import (
 )
 
 var mining bool
-var lastBlock Block
 var VerifiedPendingTxsHash []byte
 
 
@@ -25,8 +24,9 @@ func Mine() {
     }
 
     PendingTransactionsMutex.Lock()
+    lastBlock, _ := getLastBlock()
 
-    timestamp := time.Now().String()
+    timestamp  := time.Now().String()
     blockBytes := append([]byte(timestamp), lastBlock.Hash...)
     blockBytes  = append(blockBytes, nonce[:]...)
     blockBytes  = append(blockBytes, VerifiedPendingTxsHash...)
@@ -36,7 +36,6 @@ func Mine() {
       newBlock := Block{timestamp, hash[:], lastBlock.Hash, VerifiedPendingTxs, nonce[:]}
       spew.Dump(newBlock)
       AppendToBlockChain(newBlock)
-      lastBlock = newBlock
       VerifiedPendingTxs = []Transaction{}
       PendingTxs         = []Transaction{}
       propagateBlock(newBlock)

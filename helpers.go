@@ -1,19 +1,18 @@
 package main
 
-
 import (
   "crypto/elliptic"
   "crypto/ecdsa"
   "crypto/x509"
   "encoding/base64"
-  "encoding/json"
+  // "encoding/json"
   "log"
   "os"
-  "bufio"
+  // "bufio"
   "io/ioutil"
   "math/big"
   "fmt"
-  "github.com/serverhorror/rog-go/reverse"
+  // "github.com/serverhorror/rog-go/reverse"
 )
 
 
@@ -34,19 +33,19 @@ func loadFiles() {
     var bfile, _ = os.OpenFile(blockchainFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
     defer bfile.Close()
 
-    scanner := reverse.NewScanner(bfile)
-    scanner.Split(bufio.ScanLines)
-    scanner.Scan()
-    line := scanner.Text()
-
-
-    if line != "" {
-      log.Print(line)
-      var err = json.Unmarshal([]byte(line), &lastBlock)
-      if err != nil {
-        log.Fatal(err)
-      }
-    }
+    // scanner := reverse.NewScanner(bfile)
+    // scanner.Split(bufio.ScanLines)
+    // scanner.Scan()
+    // line := scanner.Text()
+    //
+    // Block
+    // if line != "" {
+    //   log.Print(line)
+    //   var err = json.Unmarshal([]byte(line), &lastBlock)
+    //   if err != nil {
+    //     log.Fatal(err)
+    //   }
+    // }
   }
 
   walletMutex.Lock()
