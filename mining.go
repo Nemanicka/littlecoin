@@ -15,6 +15,9 @@ var VerifiedPendingTxsHash []byte
 
 
 func Mine() {
+  blockchainMutex.Lock()
+  lastBlock, _ := getLastBlock()
+  blockchainMutex.Unlock()
   for {
     var nonce [32]byte
     _, err := rand.Read(nonce[:])
@@ -24,7 +27,7 @@ func Mine() {
     }
 
     PendingTransactionsMutex.Lock()
-    lastBlock, _ := getLastBlock()
+
 
     timestamp  := time.Now().String()
     blockBytes := append([]byte(timestamp), lastBlock.Hash...)
@@ -35,10 +38,16 @@ func Mine() {
     if hash[0] == 0 && hash[1] == 0 && hash[2] == 0 {
       newBlock := Block{timestamp, hash[:], lastBlock.Hash, VerifiedPendingTxs, nonce[:]}
       spew.Dump(newBlock)
-      AppendToBlockChain(newBlock)
-      VerifiedPendingTxs = []Transaction{}
-      PendingTxs         = []Transaction{}
-      propagateBlock(newBlock)
+      err = AppendToBlockChain(newBlock)
+      if err != nil {
+        blockchainMutex.Lock()
+        lastBlock, _ = getLastBlock()
+        blockchainMutex.Unlock()
+      } else {
+        VerifiedPendingTxs = []Transaction{}
+        PendingTxs         = []Transaction{}
+        propagateBlock(newBlock)
+      }
     }
 
     PendingTransactionsMutex.Unlock()

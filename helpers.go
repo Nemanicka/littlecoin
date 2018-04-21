@@ -232,8 +232,6 @@ func send() {
     fmt.Println("Not enough money")
     return
   }
-
   sendTx := CreateTransaction(unspentTxs, amount, address)
-
   OnPendingTxsAdded(sendTx);
 }

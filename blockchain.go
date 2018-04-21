@@ -47,14 +47,44 @@ func CreateGenesisBlock() Block {
   return genesisBlock
 }
 
+func deleteNLastBlocks(linesNum int) error {
+  blockIndex := 0
 
+  if (linesNum < 1) {
+    return nil
+  }
+
+  blockchainMutex.Lock()
+  defer blockchainMutex.Unlock()
+
+  var blockfile, _ = os.OpenFile(blockchainFileName, os.O_RDWR, 0644)
+  defer blockfile.Close()
+
+  scanner := reverse.NewScanner(blockfile)
+  scanner.Split(bufio.ScanLines)
+
+  truncateBytesNum := 0
+  for {
+    retcode := scanner.Scan()
+    if !retcode {
+      break
+    }
+    line := scanner.Text()
+    truncateBytesNum += len(line)
+    blockIndex += 1
+  }
+
+  os.Truncate(blockchainFileName, int64(truncateBytesNum))
+
+  return nil
+}
 
 func AppendToBlockChain(block Block) error {
   blockchainMutex.Lock()
   defer blockchainMutex.Unlock()
 
   lastBlock, _ := getLastBlock()
-  if !bytes.Equal(lastBlock.Hash, block.PrevHash) {
+  if len(lastBlock.Hash) != 0 && !bytes.Equal(lastBlock.Hash, block.PrevHash) {
     return errors.New("Previous hash is invalid")
   }
 
