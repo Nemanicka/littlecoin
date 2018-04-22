@@ -96,7 +96,7 @@ func createSyncProposalMessage() ([]byte, error) {
   fmt.Println("sending address = ", string(body[:len(body)-1]) + ":" +  os.Getenv("PORT"))
   // messageBody := string(body[:len(body)-1]) + ":" + os.Getenv("PORT")
 
-  messageBody := "127.0.0.1:" + os.Getenv("PORT")
+  messageBody := string(body[:len(body)-1]) + ":" + os.Getenv("PORT")
 
   messageType := new(bytes.Buffer)
   err = binary.Write(messageType, binary.LittleEndian, uint8(SyncProposal))
@@ -414,8 +414,8 @@ func findCommonAncestor(message []byte, conn net.Conn) error {
   found := false
 
   IterateBlockchainBackward(func(block Block) (bool, error) {
-    fmt.Println("iterating...")
-    fmt.Println(blockIndex, searchMessage.Index)
+    // fmt.Println("iterating...")
+    // fmt.Println(blockIndex, searchMessage.Index)
     if (bytes.Equal(block.Hash, searchMessage.Hash)) {
       found = true
 
@@ -424,11 +424,15 @@ func findCommonAncestor(message []byte, conn net.Conn) error {
         m, _ := createCommonAncestorResponseMessage("FOUNDLONGERCHAIN")
         conn.Write(m)
         // err = errors.New("FOUNDLONGERCHAIN")
-      } else {
+      } else if (blockIndex < searchMessage.Index) {
         fmt.Println("FOUNDSHORTERCHAIN")
         m, _ := createCommonAncestorResponseMessage("FOUNDSHORTERCHAIN")
         conn.Write(m)
         // err = errors.New("FOUNDSHORTERCHAIN")
+      } else {
+        fmt.Println("FOUNDEQUALCHAIN")
+        m, _ := createCommonAncestorResponseMessage("FOUNDEQUALCHAIN")
+        conn.Write(m)
       }
     }
     // fmt.Println("Increment")
@@ -450,8 +454,6 @@ func handleMessages(conn net.Conn) error {
   reader := bufio.NewReader(conn)
   _, err := reader.Read(buff)
 
-  fmt.Println("Got msg")
-
   // fmt.Println("read ", buff)
   if err != nil {
     // if err != io.EOF {
@@ -463,7 +465,7 @@ func handleMessages(conn net.Conn) error {
   var messageType uint8
   b := bytes.NewReader(buff[:1])
   err = binary.Read(b, binary.LittleEndian, &messageType)
-  fmt.Println("type =", messageType)
+  // fmt.Println("type =", messageType)
   if err != nil {
       fmt.Println("binary.Read failed:", err)
       return err
@@ -794,7 +796,7 @@ func syncData() {
         return true, errors.New("Error")
       }
 
-      fmt.Println("WRITE", blockIndex)
+      // fmt.Println("WRITE", blockIndex)
       pullConn.Write(m)
       blockIndex += 1
       foundCommonAncestor := false
@@ -812,11 +814,14 @@ func syncData() {
           // resolution = errors.New("Failed to find common ancestor block")
         } else if err.Error() == "FOUNDLONGERCHAIN" {
           resolution = errors.New("FOUNDLONGERCHAIN")
-
           foundCommonAncestor = true
           dstop = true
         } else if err.Error() == "FOUNDSHORTERCHAIN" {
           resolution = errors.New("FOUNDSHORTERCHAIN")
+          foundCommonAncestor = true
+          dstop = true
+        } else if err.Error() == "FOUNDEQUALCHAIN" {
+          resolution = errors.New("FOUNDEQUALCHAIN")
           foundCommonAncestor = true
           dstop = true
         } else {
@@ -839,6 +844,10 @@ func syncData() {
     } else if resolution.Error() == "FOUNDSHORTERCHAIN" {
       m, _ := createSyncProposalMessage()
       pullConn.Write(m)
+    } else if resolution.Error() == "FOUNDEQUALCHAIN" {
+      fmt.Println("Divergence with an equal chain length, wait until one become longer")
+        // m, _ := createEndMessage
+        // pullConn.Write(m)
     }
     fmt.Println("Resolution = ", resolution)
   }
