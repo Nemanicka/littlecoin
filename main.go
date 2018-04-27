@@ -99,7 +99,9 @@ func main() {
   if len(lastBlock.Hash) == 0 {
     genesisBlock := CreateGenesisBlock()
     fmt.Println("Created genesis block")
+    blockchainMutex.Lock()
     err = AppendToBlockChain(genesisBlock)
+    blockchainMutex.Unlock()
 
     if err != nil {
       log.Fatal(err)

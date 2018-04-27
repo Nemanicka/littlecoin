@@ -9,6 +9,7 @@ import (
   "github.com/serverhorror/rog-go/reverse"
   "sync"
   "bytes"
+  "fmt"
 )
 
 var blockchainFileName = "blockchain.dat"
@@ -65,23 +66,32 @@ func deleteNLastBlocks(linesNum int) error {
 
   truncateBytesNum := 0
   for {
+    if (blockIndex == linesNum) {
+      break
+    }
+
     retcode := scanner.Scan()
     if !retcode {
       break
     }
     line := scanner.Text()
+    fmt.Println("line = ", line)
     truncateBytesNum += len(line)
     blockIndex += 1
   }
 
-  os.Truncate(blockchainFileName, int64(truncateBytesNum))
+  info, _ := blockfile.Stat()
+  fileSize := info.Size()
+  fmt.Println("trunc bytes = ", fileSize - int64(truncateBytesNum))
+
+  os.Truncate(blockchainFileName, int64(fileSize - int64(truncateBytesNum) - 1))
 
   return nil
 }
 
 func AppendToBlockChain(block Block) error {
-  blockchainMutex.Lock()
-  defer blockchainMutex.Unlock()
+  // blockchainMutex.Lock()
+  // defer blockchainMutex.Unlock()
 
   lastBlock, _ := getLastBlock()
   if len(lastBlock.Hash) != 0 && !bytes.Equal(lastBlock.Hash, block.PrevHash) {

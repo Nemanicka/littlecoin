@@ -38,7 +38,9 @@ func Mine() {
     if hash[0] == 0 && hash[1] == 0 && hash[2] == 0 {
       newBlock := Block{timestamp, hash[:], lastBlock.Hash, VerifiedPendingTxs, nonce[:]}
       spew.Dump(newBlock)
+      blockchainMutex.Lock()
       err = AppendToBlockChain(newBlock)
+      blockchainMutex.Unlock()
       if err != nil {
         blockchainMutex.Lock()
         lastBlock, _ = getLastBlock()

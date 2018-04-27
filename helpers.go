@@ -15,11 +15,6 @@ import (
   // "github.com/serverhorror/rog-go/reverse"
 )
 
-
-func propagateBlock(block Block) {
-
-}
-
 var PendingTxs []Transaction
 var VerifiedPendingTxs []Transaction
 
