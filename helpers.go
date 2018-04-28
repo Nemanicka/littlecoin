@@ -228,5 +228,6 @@ func send() {
     return
   }
   sendTx := CreateTransaction(unspentTxs, amount, address)
-  OnPendingTxsAdded(sendTx);
+  OnPendingTxsAdded(sendTx)
+  propagateTransaction(sendTx)
 }

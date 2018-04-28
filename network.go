@@ -53,11 +53,6 @@ type CommonAncestorSearchMessage struct {
   Hash  []byte
 }
 
-
-func propagateBlock(block Block) {
-
-}
-
 func createMessage(mBody []byte, mType uint8) ([]byte, error) {
   messageType := new(bytes.Buffer)
   err := binary.Write(messageType, binary.LittleEndian, uint8(mType))
@@ -76,6 +71,36 @@ func createMessage(mBody []byte, mType uint8) ([]byte, error) {
   message := append(messageType.Bytes(), messageLength.Bytes()...)
   message = append(message, mBody...)
   return message, nil
+}
+
+func propagateBlock(block Block) {
+  messageBody, _ := json.Marshal(block)
+  message, err := createMessage(messageBody, uint8(B))
+
+  if err != nil {
+    fmt.Println("Error during transaction propagation")
+  }
+
+  networkMutex.Lock()
+  for _, conn := range recipients {
+    conn.Write(message)
+  }
+  networkMutex.Unlock()
+}
+
+func propagateTransaction(transaction Transaction) {
+  messageBody, _ := json.Marshal(transaction)
+  message, err := createMessage(messageBody, uint8(T))
+
+  if err != nil {
+    fmt.Println("Error during transaction propagation")
+  }
+
+  networkMutex.Lock()
+  for _, conn := range recipients {
+    conn.Write(message)
+  }
+  networkMutex.Unlock()
 }
 
 func createBlockMessage(block Block) ([]byte, error) {
@@ -168,6 +193,48 @@ func sendBlockchain(message []byte, conn net.Conn) {
   }
 }
 
+func onTransactionReceived(messageBody []byte) error {
+  PendingTransactionsMutex.Lock()
+  var transaction Transaction
+  err := json.Unmarshal(messageBody, &transaction)
+  if err != nil {
+    fmt.Println("Received transaction is invalid, cannot unmarshal");
+    return err
+  }
+
+  for _, tx := range PendingTxs {
+    if bytes.Equal(tx.Id, transaction.Id) {
+      // Do nothing
+      return nil
+    }
+  }
+
+  PendingTransactionsMutex.Unlock()
+  propagateTransaction(transaction)
+  OnPendingTxsAdded(transaction)
+  return nil
+}
+
+func cleanTransactions(block Block, txs *[]Transaction) {
+  for _, tx := range block.Txs {
+    deleteIndex := -1
+    for index, ptx := range *txs {
+      if bytes.Equal(tx.Id, ptx.Id) {
+        deleteIndex = index
+      }
+    }
+
+    if deleteIndex != -1 {
+      if len(*txs) == 1 {
+        var empty []Transaction
+        (*txs) = empty
+      } else {
+        *txs = append((*txs)[:deleteIndex], (*txs)[deleteIndex+1:]...)
+      }
+    }
+  }
+}
+
 func onBlockReceived(messageBody []byte) error {
   // fmt.Println("got = ", len(messageBody))
 
@@ -189,6 +256,11 @@ func onBlockReceived(messageBody []byte) error {
     return err
   }
 
+  PendingTransactionsMutex.Lock()
+  defer PendingTransactionsMutex.Unlock()
+
+  cleanTransactions(block, &PendingTxs)
+  cleanTransactions(block, &VerifiedPendingTxs)
   return nil
 }
 
@@ -299,11 +371,15 @@ func handleMessages(conn net.Conn) (string, error) {
       return "THEEND", nil
     case B:
       err = onBlockReceived(messageBody)
+      fmt.Println("err", err)
       if err != nil {
+        fmt.Println(err)
         return "", err
       }
       m, _ := createOkMessage()
       conn.Write(m)
+    case T:
+      onTransactionReceived(messageBody)
     case Ok:
       return "OK", nil
     case InitDivergenceResolving:
@@ -370,6 +446,8 @@ func connect() {
   networkMutex.Lock()
   defer networkMutex.Unlock()
 
+  recipients = make(map[string]net.Conn)
+
   if len(addresses) < 2 {
     fmt.Println("\n-------------------\n")
     fmt.Println("Hello, newbie, I cannot sync you with others, because there's no 'others', but you can add one or two by typing 'addbuddy'")
@@ -398,12 +476,48 @@ func connect() {
 
     } else {
       pullConn = conn
+      recipients[addresses[addressIndex]] = conn
       fmt.Println("Connected to ", addresses[addressIndex])
       break
     }
   }
-  // pendingRequests.Add(1)
 
+  fmt.Println("Choosing recipients")
+
+  addressIndex = rand.Intn(len(addresses) - 1) + 1
+  head         = addressIndex
+  for {
+    if len(recipients) == (len(addresses) - 1) ||
+       len(recipients) >= 10 {
+      return
+    }
+
+    fmt.Println("Dialing...")
+    conn, err := net.Dial("tcp", addresses[addressIndex])
+    if (err != nil) {
+      fmt.Println("Cannot dial " + addresses[addressIndex])
+      if addressIndex == len(addresses) - 1 {
+        addressIndex = 1
+      } else {
+        addressIndex += 1
+      }
+
+      if addressIndex == head {
+        fmt.Println("There is no more peers to choose as recipients, try later")
+        break;
+      }
+    } else {
+      recipients[addresses[addressIndex]] = conn
+      fmt.Println("Recipient added: ", addresses[addressIndex])
+
+      if addressIndex == len(addresses) - 1 {
+        addressIndex = 1
+      } else {
+        addressIndex += 1
+      }
+
+    }
+  }
 }
 
 func loadAddresses() {
