@@ -6,7 +6,6 @@ import (
   "os"
   "time"
   "net"
-  // "net/url"
   "bufio"
   "fmt"
   "io/ioutil"
@@ -14,21 +13,10 @@ import (
   "encoding/json"
   "encoding/binary"
   "strconv"
-  // "sync/atomic"
-  //"github.com/davecgh/go-spew/spew"
-  //"github.com/gorilla/mux"
-  //"github.com/joho/godotenv"
-  //"crypto/sha256"
-  //"encoding/json"
-  //"os"
-  //"bufio"
   "errors"
-  //"github.com/serverhorror/rog-go/reverse"
-  // "math"
   "bytes"
   "math/rand"
   "sync"
-  // "strings"
 )
 
 var networkMutex sync.Mutex
@@ -111,126 +99,39 @@ func createSyncProposalMessage() ([]byte, error) {
 
   // messageBody := string(body[:len(body)-1]) + ":" + os.Getenv("PORT")
   messageBody := "127.0.0.1:" + os.Getenv("PORT")
-
   return createMessage([]byte(messageBody), SyncProposal)
 }
 
 func createCommonAncestorSearchMessage(index int, hash []byte) ([]byte, error) {
-  messageBody, err := json.Marshal(CommonAncestorSearchMessage{index, hash})
-
-  messageType := new(bytes.Buffer)
-  err = binary.Write(messageType, binary.LittleEndian, uint8(CommonAncestorSearch))
-  if err != nil {
-    fmt.Println("failed", err)
-    return []byte{}, err
-  }
-
-  messageLength := new(bytes.Buffer)
-  err = binary.Write(messageLength, binary.LittleEndian, uint32(len(messageBody)))
-  if err != nil {
-    fmt.Println("failed", err)
-    return []byte{}, err
-  }
-
-  message := append(messageType.Bytes(), messageLength.Bytes()...)
-  message = append(message, messageBody...)
-  return message, nil
+  messageBody, _ := json.Marshal(CommonAncestorSearchMessage{index, hash})
+  return createMessage(messageBody, CommonAncestorSearch)
 }
-
 
 func createCommonAncestorResponseMessage(response string) ([]byte, error) {
   messageBody := []byte(response)
-
-  messageType := new(bytes.Buffer)
-  err := binary.Write(messageType, binary.LittleEndian, uint8(CommonAncestorResponse))
-  if err != nil {
-    fmt.Println("failed", err)
-    return []byte{}, err
-  }
-
-  messageLength := new(bytes.Buffer)
-  err = binary.Write(messageLength, binary.LittleEndian, uint32(len(messageBody)))
-  if err != nil {
-    fmt.Println("failed", err)
-    return []byte{}, err
-  }
-
-  message := append(messageType.Bytes(), messageLength.Bytes()...)
-  message = append(message, messageBody...)
-  return message, nil
+  return createMessage(messageBody, CommonAncestorResponse)
 }
 
 func createInitDivergenceResolvingMessage() ([]byte, error) {
-  messageBody := "DIVERGENCE"
-
-  messageType := new(bytes.Buffer)
-  err := binary.Write(messageType, binary.LittleEndian, uint8(InitDivergenceResolving))
-  if err != nil {
-    fmt.Println("failed", err)
-    return []byte{}, err
-  }
-
-  messageLength := new(bytes.Buffer)
-  err = binary.Write(messageLength, binary.LittleEndian, uint32(len(messageBody)))
-  if err != nil {
-    fmt.Println("failed", err)
-    return []byte{}, err
-  }
-
-  message := append(messageType.Bytes(), messageLength.Bytes()...)
-  message = append(message, messageBody...)
-  return message, nil
+  messageBody := []byte("DIVERGENCE")
+  return createMessage(messageBody, InitDivergenceResolving)
 }
 
 func createEndMessage() ([]byte, error) {
   messageBody := []byte("THEEND")
-
-  messageType := new(bytes.Buffer)
-  err := binary.Write(messageType, binary.LittleEndian, uint8(End))
-  if err != nil {
-    fmt.Println("failed", err)
-    return []byte{}, err
-  }
-
-  messageLength := new(bytes.Buffer)
-  err = binary.Write(messageLength, binary.LittleEndian, uint32(len(messageBody)))
-  if err != nil {
-    fmt.Println("failed", err)
-    return []byte{}, err
-  }
-
-  message := append(messageType.Bytes(), messageLength.Bytes()...)
-  message = append(message, messageBody...)
-  return message, nil
+  return createMessage(messageBody, End)
 }
 
 func createOkMessage() ([]byte, error) {
   messageBody := []byte("OK")
-
-  messageType := new(bytes.Buffer)
-  err := binary.Write(messageType, binary.LittleEndian, uint8(Ok))
-  if err != nil {
-    fmt.Println("failed", err)
-    return []byte{}, err
-  }
-
-  messageLength := new(bytes.Buffer)
-  err = binary.Write(messageLength, binary.LittleEndian, uint32(len(messageBody)))
-  if err != nil {
-    fmt.Println("failed", err)
-    return []byte{}, err
-  }
-
-  message := append(messageType.Bytes(), messageLength.Bytes()...)
-  message = append(message, messageBody...)
-  return message, nil
+  return createMessage(messageBody, Ok)
 }
 
 func sendBlockchain(message []byte, conn net.Conn) {
   sending := false
 
   // int sendingIndex = 0;
-  IterateBlockchainForward(func(block Block) (bool, error) {
+  IterateBlockchainForward(func(block Block, index int) (bool, error) {
     // sendingIndex += 1
     fmt.Println(block.Hash, "|", message)
     if bytes.Equal(message, block.Hash) {
@@ -244,10 +145,7 @@ func sendBlockchain(message []byte, conn net.Conn) {
         if err != nil {
           return false, err
         }
-        // fmt.Println("sending header = ", message[0], message[1], message[2], message[3], message[4])
-        // fmt.Println("sending size  = ", len(message))
-        // fmt.Println("sending block  = ", message[4:])
-        // fmt.Println("sending hash  = ", block.Hash)
+
         conn.Write(message)
         _, err = handleMessages(conn)
         if err != nil {
@@ -305,7 +203,7 @@ func findCommonAncestor(message []byte, conn net.Conn) (string, error) {
   blockIndex := 0
   found := false
 
-  IterateBlockchainBackward(func(block Block) (bool, error) {
+  IterateBlockchainBackward(func(block Block, index int) (bool, error) {
     // fmt.Println("iterating...")
     // fmt.Println(blockIndex, searchMessage.Index)
     if (bytes.Equal(block.Hash, searchMessage.Hash)) {
@@ -392,8 +290,6 @@ func handleMessages(conn net.Conn) (string, error) {
       return "", err
     }
   }
-
-  fmt.Println("lil")
 
   switch messageType {
     case Sync:
@@ -549,259 +445,108 @@ func initAddresses() {
   }
 }
 
-func emitMessage(address string, message Message) {
-  // defer pendingRequests.Done()
-  // uri := "http://" + address + ":12321/" + message.Path;
-  //
-  // fmt.Println("asking for updates ", uri)
-  //
-  // if (message.Method == "GET") {
-  //   http.Get(uri)
-  // } else if (message.Method == "POST") {
-  //   http.PostForm(uri, message.Body)
-  // }
-}
-
-func emitMessages(message Message) {
-  // recipientsNum := int(math.Min(float64(10), float64(len(addresses) - 1)))
-
-  // for i := 0; i < recipientsNum; i++ {
-  //   address := rand.Intn(len(addresses) - 1) + 1
-  //   pendingRequests.Add(1)
-  //   go emitMessage(addresses[address], message)
-  // }
-}
-
 func syncData() {
   syncing = true
-  fmt.Println("Sync")
   networkMutex.Lock()
-  fmt.Println("Passed lock")
   if pullConn == nil {
     fmt.Println("No connection to sync from");
     networkMutex.Unlock()
     return
   }
 
-  // fmt.Println(len(int))
-  // fmt.Println(len(uint))
+  didle := time.Now()
+  dstop := false
 
-  // blockchainMutex.Lock()
-  // lastBlock, _ := getLastBlock()
-  // blockchainMutex.Unlock()
-  // lastBlockHash := lastBlock.Hash
-  // messageType := new(bytes.Buffer)
-  // err := binary.Write(messageType, binary.LittleEndian, uint8(Sync))
-  // if err != nil {
-  //   fmt.Println("failed", err)
-  // }
-  //
-  // messageLength := new(bytes.Buffer)
-  // err = binary.Write(messageLength, binary.LittleEndian, uint32(len(lastBlockHash)))
-  // if err != nil {
-  //   fmt.Println("failed", err)
-  // }
-  //
-  // message := append(messageType.Bytes(), messageLength.Bytes()...)
-  //
-  // // fmt.Println("len = ", buf.Bytes())
-  // // var b bytes.Buffer
-  // // fmt.Println("bytes = ", len(b.Bytes()))
-	// // fmt.Fprint(&b, Sync, 0)
-  // // n := binary
-  //
-	// // return b.Bytes(), nil
-  //
-  // // fmt.Println("hashlen = ", len(lastBlockHash))
-  // // bytes, _ := json.Marshal(message)
-  // fmt.Println("message = ", len(message))
-  //
-  // if len(message) != 5 {
-  //   fmt.Println("Not going to send this message, too long", len(message), "bytes");
-  //   return
-  // }
-  //
-  // message = append(message, lastBlockHash...)
-  //
-  // // bytes = append(bytes, lastBlockHash...)
-  //
-  // pullConn.Write(message)
-  // if (err != nil) {
-  //   fmt.Println("error!");
-  // }
-  //
-  // idle := time.Now()
-  // stop := false
-  //
-  // go func () {
-  //   for {
-  //     if stop {
-  //       break
-  //     }
-  //
-  //     now := time.Now()
-  //     diff := now.Sub(idle)
-  //     // fmt.Println(diff)
-  //     if diff > 5*time.Second  {
-  //       fmt.Println("Oops, cannot sync you :(")
-  //       pullConn.Close()
-  //       break
-  //     }
-  //
-  //     time.Sleep(1)
-  //   }
-  // } ()
-  //
-  // for {
-  //   idle = time.Now()
-  //   // go func () {
-  //   err = handleMessages(pullConn)
-  //     if err != nil {
-  //       if err.Error() != "THEEND" && err.Error() != "DIVERGENCE" {
-  //         fmt.Println("error during message handling")
-  //       }
-  //       stop = true
-  //       break
-  //     }
-  //   // } ()
-  // }
-  //
-  // if err.Error() == "DIVERGENCE" {
-  //   fmt.Println("Start divergence resolution")
-    // isInDivergenceResolutionSession.Store(true)
-    // defer isInDivergenceResolutionSession.Store(false)
-
-    blockIndex := 0
-    resolution := errors.New("")
-    resolution = nil
-
-    didle := time.Now()
-    dstop := false
-
-    go func () {
-      for {
-        if dstop {
-          break
-        }
-
-        now := time.Now()
-        diff := now.Sub(didle)
-        // fmt.Println(diff)
-        if diff > 5*time.Second  {
-          fmt.Println("Oops, cannot resolve divergence :(")
-          pullConn.Close()
-          break
-        }
-
-        time.Sleep(1)
-      }
-    } ()
-
-    iteratingResult := IterateBlockchainBackward(func(block Block) (bool, error) {
-      m, err := createCommonAncestorSearchMessage(blockIndex, block.Hash)
-      if err != nil {
-        fmt.Println("error while creating message")
-        return true, errors.New("Error")
+  /// If connection is idle for more then 5 sec, stop it
+  go func () {
+    for {
+      if dstop {
+        break
       }
 
-      // fmt.Println("WRITE", blockIndex)
-      pullConn.Write(m)
-
-      foundCommonAncestor := false
-
-
-
-      for {
-        didle = time.Now()
-        // go func () {
-        message, _ := handleMessages(pullConn)
-        if message == "OK" {
-          continue
-        }
-
-        if message == "TRYNEXT" {
-          fmt.Println("trying next...")
-          break
-        // } else if err.Error() == "THEEND" {
-          // fmt.Println("Failed to find common ancestor block")
-          // resolution = errors.New("Failed to find common ancestor block")
-        } else if message == "FOUNDLONGERCHAIN" {
-          fmt.Println("trying to stop...")
-          resolution = errors.New("FOUNDLONGERCHAIN")
-          foundCommonAncestor = true
-          dstop = true
-          return foundCommonAncestor, nil
-        } else if message == "FOUNDSHORTERCHAIN" {
-          resolution = errors.New("FOUNDSHORTERCHAIN")
-          foundCommonAncestor = true
-          dstop = true
-          return foundCommonAncestor, nil
-        } else if message == "FOUNDEQUALCHAIN" {
-          resolution = errors.New("FOUNDEQUALCHAIN")
-          foundCommonAncestor = true
-          dstop = true
-          return foundCommonAncestor, nil
-        } else if message == "THEEND" {
-          resolution = errors.New("SYNCED")
-          foundCommonAncestor = true
-          dstop = true
-          return foundCommonAncestor, nil
-        } else {
-          fmt.Println("Smth went wrong", message)
-          resolution = errors.New("Error")
-          return foundCommonAncestor, nil
-        }
-        if dstop {
-          return foundCommonAncestor, nil
-        }
+      now := time.Now()
+      diff := now.Sub(didle)
+      // fmt.Println(diff)
+      if diff > 5*time.Second  {
+        fmt.Println("Oops, cannot resolve divergence :(")
+        pullConn.Close()
+        break
       }
-      blockIndex += 1
-      fmt.Println("stopped")
-      return foundCommonAncestor, nil
-    })
 
-    if iteratingResult != nil {
-      fmt.Println("Iteration ends with error")
+      time.Sleep(1)
+    }
+  } ()
+
+  blockIndex := 0
+  handlingResult := "ERROR"
+  iteratingResult := IterateBlockchainBackward(func(block Block, index int) (bool, error) {
+    blockIndex = index
+    m, err := createCommonAncestorSearchMessage(index, block.Hash)
+    if err != nil {
+      fmt.Println("error while creating message")
+      return true, errors.New("Error")
     }
 
-    fmt.Println("Ok")
+    pullConn.Write(m)
 
-    dstop = true
-    if resolution == nil {
-      fmt.Println("There is no common ancestor, try to delete blockchain.dat file and update client. Sorry(")
-    } else if resolution.Error() == "FOUNDLONGERCHAIN" {
-      fmt.Println("index ", blockIndex)
-      if isInDivergenceResolutionSession {
-        fmt.Println("do nothing, we've been through this with no luck")
-        isInDivergenceResolutionSession = false
-      } else {
-        isInDivergenceResolutionSession = true
-        if blockIndex != 0 {
-          fmt.Println("delete ", blockIndex)
-          deleteNLastBlocks(blockIndex)
-          // log.Fatal("XXX")
-        }
-        syncing = false
-        networkMutex.Unlock()
-        syncData()
-        return
+    for {
+      didle = time.Now()
+      handlingResult, err = handleMessages(pullConn)
+      if handlingResult == "FOUNDLONGERCHAIN"  ||
+         handlingResult == "FOUNDSHORTERCHAIN" ||
+         handlingResult == "FOUNDEQUALCHAIN"   ||
+         handlingResult == "THEEND" {
+        // Stop iteration
+        return true, err
       }
-    } else if resolution.Error() == "FOUNDSHORTERCHAIN" {
-      m, _ := createSyncProposalMessage()
-      pullConn.Write(m)
-    } else if resolution.Error() == "FOUNDEQUALCHAIN" {
-      fmt.Println("Divergence with an equal chain length, wait until one become longer")
-        // m, _ := createEndMessage
-        // pullConn.Write(m)
-    } else if resolution.Error() == "THEEND" {
-      // fmt.Println("Divergence with an equal chain length, wait ")
-        // m, _ := createEndMessage
-        // pullConn.Write(m)
+
+      if handlingResult == "TRYNEXT" {
+        break
+      }
+
+      if handlingResult != "OK" {
+        return true, err
+      }
     }
-    syncing = false
-    networkMutex.Unlock()
-    fmt.Println("Resolution = ", resolution)
-  // }
+
+    return false, err
+  })
+
+  /// Stop connection listening routine
+  dstop = true
+
+  if iteratingResult != nil {
+    fmt.Println("Iteration ends with error")
+  }
+
+  if handlingResult == "ERROR" {
+    fmt.Println("There is no common ancestor, try to delete blockchain.dat file and update client. Sorry(")
+  } else if handlingResult == "FOUNDLONGERCHAIN" {
+    fmt.Println("index ", blockIndex)
+    if isInDivergenceResolutionSession {
+      fmt.Println("do nothing, we've been through this with no luck")
+      isInDivergenceResolutionSession = false
+    } else {
+      isInDivergenceResolutionSession = true
+      if blockIndex != 0 {
+        fmt.Println("delete ", blockIndex)
+        deleteNLastBlocks(blockIndex)
+      }
+      // syncing = false
+      // networkMutex.Unlock()
+      defer syncData()
+      // return
+    }
+  } else if handlingResult == "FOUNDSHORTERCHAIN" {
+    m, _ := createSyncProposalMessage()
+    pullConn.Write(m)
+  } else if handlingResult == "FOUNDEQUALCHAIN" {
+    fmt.Println("Divergence with an equal chain length, wait until one become longer")
+  } else if handlingResult == "THEEND" {
+      // pullConn.Write(m)
+  }
+  syncing = false
+  networkMutex.Unlock()
 }
 
 func showAddresses() {

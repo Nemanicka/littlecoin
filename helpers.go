@@ -117,7 +117,7 @@ func getUnspentTxs(limit int) ([]Transaction) {
   }
   PendingTransactionsMutex.Unlock()
 
-  IterateBlockchainBackward(func(block Block) (bool, error)  {
+  IterateBlockchainBackward(func(block Block, index int) (bool, error)  {
     for _, tx := range block.Txs {
       // Store already spent transaction from each block
       if IsMySpending(tx) {

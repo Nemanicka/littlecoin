@@ -110,7 +110,7 @@ func AppendToBlockChain(block Block) error {
   return nil
 }
 
-type onBlock func(block Block) (bool, error)
+type onBlock func(block Block, index int) (bool, error)
 
 func IterateBlockchainForward(lambda onBlock) error {
   blockchainMutex.Lock()
@@ -119,7 +119,7 @@ func IterateBlockchainForward(lambda onBlock) error {
   var blockfile, _ = os.OpenFile(blockchainFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
   defer blockfile.Close()
   reader := bufio.NewReader(blockfile)
-
+  index := 0
   for {
     line, _, err := reader.ReadLine()
     if len(line) == 0 {
@@ -137,7 +137,7 @@ func IterateBlockchainForward(lambda onBlock) error {
     }
 
     stop := false
-    stop, err = lambda(block)
+    stop, err = lambda(block, index)
     if err != nil {
       return err
     }
@@ -145,6 +145,7 @@ func IterateBlockchainForward(lambda onBlock) error {
     if stop {
       return nil
     }
+    index += 1
   }
 
   return nil
@@ -159,7 +160,7 @@ func IterateBlockchainBackward(lambda onBlock) error {
 
   scanner := reverse.NewScanner(blockfile)
   scanner.Split(bufio.ScanLines)
-
+  index := 0
   for {
     retcode := scanner.Scan()
     if !retcode {
@@ -175,7 +176,7 @@ func IterateBlockchainBackward(lambda onBlock) error {
     }
 
     stop := false
-    stop, err = lambda(block)
+    stop, err = lambda(block, index)
     if err != nil {
       return err
     }
@@ -183,6 +184,7 @@ func IterateBlockchainBackward(lambda onBlock) error {
     if stop {
       return nil
     }
+    index += 1
   }
 
   return nil

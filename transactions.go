@@ -89,7 +89,7 @@ func CreateTransaction(unspentTxs []Transaction, amount int, address string) Tra
 }
 
 func showTransactions () {
-  IterateBlockchainForward(func(block Block) (bool, error) {
+  IterateBlockchainForward(func(block Block, index int) (bool, error) {
     showTransactionsWithStatus(block.Txs, "confirmed")
     return false, nil
   })

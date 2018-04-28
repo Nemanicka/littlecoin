@@ -84,7 +84,7 @@ func OnPendingTxsAdded(sendTx Transaction) {
     sendingAmount += txout.Amount
   }
 
-  IterateBlockchainBackward(func(block Block) (bool, error)  {
+  IterateBlockchainBackward(func(block Block, index int) (bool, error)  {
     for _, tx := range block.Txs {
       for _, txin := range tx.Txin {
         if _, ok := txIdsMap[string(txin.IdRef)]; ok {
